@@ -328,19 +328,18 @@ async function cargarSheets(){
   try {
     const r = await fetch(CSV_URL + Date.now());
     const txt = await r.text();
-    // El CSV tiene en A1: "estado", en B1: el JSON
-    const lineas = txt.trim().split('\n');
-    if(lineas.length < 1) return null;
-    // Buscar la fila con "estado" en la primera columna
-    for(const linea of lineas){
-      if(linea.startsWith('estado,')){
-        // El JSON puede tener comas dentro, así que tomamos todo lo que sigue al primer separador
-        const json = linea.substring('estado,'.length).replace(/^"|"$/g,'').replace(/""/g,'"');
-        return JSON.parse(json);
-      }
+    // Buscar la línea que empieza con "estado,"
+    // El JSON está en la segunda columna, envuelto en comillas dobles con comillas internas escapadas como ""
+    const match = txt.match(/^estado,(.+)$/m);
+    if(!match) return null;
+    let raw = match[1].trim();
+    // Si está rodeado de comillas dobles, quitarlas y des-escapar ""  ->  "
+    if(raw.startsWith('"') && raw.endsWith('"')){
+      raw = raw.slice(1,-1).replace(/""/g,'"');
     }
-    return null;
+    return JSON.parse(raw);
   } catch(e) {
+    console.error('Error cargando Sheets:', e);
     return null;
   }
 }
