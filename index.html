@@ -248,6 +248,72 @@
 </div>
 
 <script>
+// ── Auth ─────────────────────────────────────────────────────────────
+const PASS_ADMIN = 'Poseidon321.@';
+const PASS_GUEST = 'Invitado';
+let modoLectura = false;
+
+function mostrarLogin(){
+  document.body.innerHTML = `
+    <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#1a1a1a;">
+      <div style="background:#222;border:1px solid #333;border-radius:10px;padding:2rem;width:320px;text-align:center;">
+        <div style="font-size:32px;margin-bottom:0.5rem;">🔐</div>
+        <h2 style="font-size:18px;font-weight:500;margin-bottom:0.25rem;color:#fff;">Gestor de Deudas</h2>
+        <p style="font-size:12px;color:#666;margin-bottom:1.5rem;">Ingresá tu clave para continuar</p>
+        <input id="login-pass" type="password" placeholder="Contraseña" autofocus
+          style="width:100%;background:#333;border:1px solid #444;color:#fff;padding:10px;border-radius:6px;font-size:14px;margin-bottom:10px;box-sizing:border-box;"
+          onkeydown="if(event.key==='Enter')doLogin()">
+        <button onclick="doLogin()"
+          style="width:100%;background:#2a5a3a;border:1px solid #3a7a4a;color:#fff;padding:10px;border-radius:6px;font-size:14px;cursor:pointer;">
+          Entrar
+        </button>
+        <p id="login-err" style="color:#f88;font-size:12px;margin-top:10px;display:none;">Clave incorrecta</p>
+      </div>
+    </div>`;
+  setTimeout(()=>document.getElementById('login-pass').focus(),100);
+}
+
+function doLogin(){
+  const val = document.getElementById('login-pass').value;
+  if(val === PASS_ADMIN){
+    modoLectura = false;
+    iniciarApp();
+  } else if(val === PASS_GUEST){
+    modoLectura = true;
+    iniciarApp();
+  } else {
+    document.getElementById('login-err').style.display='block';
+    document.getElementById('login-pass').value='';
+    document.getElementById('login-pass').focus();
+  }
+}
+
+function iniciarApp(){
+  document.body.innerHTML = `
+  <div class="container">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:8px;">
+      <h1 style="font-size:20px;">Gestor de Deudas${modoLectura?' <span style="font-size:11px;background:#333;color:#aaa;padding:3px 8px;border-radius:4px;">Solo lectura</span>':''}</h1>
+      <span id="save-badge" class="save-badge"></span>
+    </div>
+    <div class="tabs" id="tabs">
+      <button class="tab active" onclick="setView(\'resumen\')">📅 Mes</button>
+      <button class="tab" onclick="setView(\'detalle\')">👥 Personas</button>
+      <button class="tab" onclick="setView(\'lista\')">📋 Cuotas</button>
+      <button class="tab" onclick="setView(\'fijos\')">🏠 Fijos</button>
+      <button class="tab" onclick="setView(\'categorias\')">🏷 Categorías</button>
+      ${modoLectura?'':'<button class="tab" onclick="setView(\'agregar\')">➕ Agregar</button>'}
+    </div>
+    <div id="view-resumen"></div>
+    <div id="view-detalle" class="hide"></div>
+    <div id="view-lista" class="hide"></div>
+    <div id="view-fijos" class="hide"></div>
+    <div id="view-categorias" class="hide"></div>
+    ${modoLectura?'':'<div id="view-agregar" class="hide"></div>'}
+  </div>`;
+  init();
+}
+// ────────────────────────────────────────────────────────────────────
+
 const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const FREQ_LABEL={mensual:'Mensual',bimestral:'Bimestral',trimestral:'Trimestral',semestral:'Semestral',anual:'Anual'};
 const FREQ_MONTHS={mensual:1,bimestral:2,trimestral:3,semestral:6,anual:12};
@@ -350,6 +416,7 @@ function showBadge(ok, msg){
   saveTimer=setTimeout(()=>{b.style.display='none';},3000);
 }
 function guardar(){
+  if(modoLectura) return;
   guardarSheets();
 }
 
@@ -497,7 +564,7 @@ function renderLista(){
   document.getElementById('view-lista').innerHTML=html;
 }
 
-function startEdit(id){editingId=(editingId===id)?null:id;renderLista();}
+function startEdit(id){if(modoLectura)return;editingId=(editingId===id)?null:id;renderLista();}
 function cancelEdit(){editingId=null;renderLista();}
 function guardarEdit(id){
   const d=deudas.find(x=>x.id===id);if(!d)return;
@@ -682,7 +749,7 @@ async function init(){
   renderResumen();
 }
 
-init();
+mostrarLogin();
 </script>
 </body>
 </html>
