@@ -261,40 +261,9 @@ let currentView='resumen', currentMonthIdx=CURRENT_MONTH;
 let deudas=[],fijos=[],pagados={},categorias=[],saldados={};
 let editingId=null,editingFijoId=null,saveTimer=null;
 
-const DEFAULT_DEUDAS=[
-  {id:1,persona:'Ramón',producto:'PS5',cuotaInicio:10,cuotaTotal:18,monto:71612,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:2,persona:'Ramón',producto:'Joystick',cuotaInicio:5,cuotaTotal:18,monto:9055,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:3,persona:'Ramón',producto:'Cable',cuotaInicio:2,cuotaTotal:6,monto:10653,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:4,persona:'Ramón',producto:'Colchón',cuotaInicio:1,cuotaTotal:18,monto:66274,mesInicio:5,anoInicio:2026,negativo:false},
-  {id:5,persona:'Ramón',producto:'Tele',cuotaInicio:1,cuotaTotal:12,monto:150000,mesInicio:6,anoInicio:2026,negativo:false},
-  {id:6,persona:'Seba',producto:'Ruedas',cuotaInicio:5,cuotaTotal:6,monto:40917,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:7,persona:'Seba',producto:'Gabeta',cuotaInicio:3,cuotaTotal:6,monto:106415,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:8,persona:'Seba',producto:'Luces',cuotaInicio:1,cuotaTotal:6,monto:24458,mesInicio:5,anoInicio:2026,negativo:false},
-  {id:9,persona:'Fabio',producto:'Silla',cuotaInicio:1,cuotaTotal:6,monto:21519,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:10,persona:'Daro',producto:'VR',cuotaInicio:1,cuotaTotal:6,monto:130936,mesInicio:5,anoInicio:2026,negativo:false},
-  {id:11,persona:'Lidia',producto:'Monopatín',cuotaInicio:9,cuotaTotal:18,monto:72834,mesInicio:4,anoInicio:2026,negativo:true},
-  {id:12,persona:'Pablo',producto:'Juegos PS5',cuotaInicio:5,cuotaTotal:18,monto:16672,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:13,persona:'Pablo',producto:'Lectora PS5',cuotaInicio:5,cuotaTotal:12,monto:27917,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:14,persona:'Pablo',producto:'Silla',cuotaInicio:17,cuotaTotal:18,monto:15451,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:15,persona:'Pablo',producto:'Entradas',cuotaInicio:1,cuotaTotal:3,monto:43125,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:16,persona:'Pablo',producto:'HBO',cuotaInicio:1,cuotaTotal:999,monto:4061,mesInicio:4,anoInicio:2026,negativo:true},
-  {id:17,persona:'Pablo',producto:'Spotify',cuotaInicio:1,cuotaTotal:999,monto:3654,mesInicio:4,anoInicio:2026,negativo:true},
-  {id:18,persona:'Pablo',producto:'YouTube',cuotaInicio:1,cuotaTotal:999,monto:3013,mesInicio:4,anoInicio:2026,negativo:true},
-];
-const DEFAULT_CATS=[
-  {id:201,nombre:'Servicios',color:'#378ADD'},
-  {id:202,nombre:'Vivienda',color:'#1D9E75'},
-  {id:203,nombre:'Impuestos',color:'#D85A30'},
-  {id:204,nombre:'Seguros',color:'#7F77DD'},
-  {id:205,nombre:'Transporte',color:'#BA7517'},
-  {id:206,nombre:'Salud',color:'#D4537E'},
-  {id:207,nombre:'Tahiel',color:'#D4537E'},
-];
-const DEFAULT_FIJOS=[
-  {id:301,nombre:'Karate',monto:25000,frecuencia:'mensual',vencimiento:30,mesBase:5,anoBase:2026,categoriaId:207},
-  {id:302,nombre:'Colegio',monto:91000,frecuencia:'mensual',vencimiento:10,mesBase:5,anoBase:2026,categoriaId:207},
-  {id:303,nombre:'Saudachi',monto:41000,frecuencia:'mensual',vencimiento:10,mesBase:5,anoBase:2026,categoriaId:207},
-];
+const DEFAULT_DEUDAS=[];
+const DEFAULT_CATS=[{id:201,nombre:'Servicios',color:'#378ADD'}];
+const DEFAULT_FIJOS=[];
 
 // ── Google Sheets sync ──────────────────────────────────────────────
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzK4_ZhiaN-oM89UolMk53sy7j1_-D8hMyQWormvJi6_HoRIT7OEy8yOyLOneDLrwPR/exec';
