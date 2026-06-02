@@ -114,6 +114,7 @@
     <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
       <span id="sync-status" class="sync-status">Preparado</span>
       <button onclick="syncToSheets()" style="font-size: 12px;">💾 Sincronizar</button>
+      <button onclick="cargarDesdeSheets()" style="font-size: 12px;">🔄 Cargar</button>
     </div>
   </div>
   
@@ -135,7 +136,6 @@
 </div>
 
 <script>
-const SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyJeZE9Z6i8Ex9iCiV30_zQBwbpo9rhlRgUWshTEih0Ve4mmPF4VV0BQCIW_IxdLvxf_g/exec';
 const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const FREQ_LABEL={mensual:'Mensual',bimestral:'Bimestral',trimestral:'Trimestral',semestral:'Semestral',anual:'Anual'};
 const FREQ_MONTHS={mensual:1,bimestral:2,trimestral:3,semestral:6,anual:12};
@@ -190,13 +190,6 @@ function saldoKey(p,m,a){return`${p}-${m}-${a}`;}
 function isSaldado(p,m,a){return!!saldados[saldoKey(p,m,a)];}
 function toggleSaldado(p,m,a){const k=saldoKey(p,m,a);if(saldados[k])delete saldados[k];else saldados[k]=true;guardar();renderResumen();}
 
-function showSyncStatus(msg, ok=true){
-  const el=document.getElementById('sync-status');
-  el.textContent=msg;
-  el.className='sync-status '+(ok?'sync-ok':'sync-err');
-  setTimeout(()=>{el.textContent='Preparado'; el.className='sync-status';}, 3000);
-}
-
 function guardar(){
   save('gd-deudas',deudas);
   save('gd-fijos',fijos);
@@ -205,29 +198,47 @@ function guardar(){
   save('gd-saldados',saldados);
 }
 
+function showSyncStatus(msg, ok=true){
+  const el=document.getElementById('sync-status');
+  el.textContent=msg;
+  el.className='sync-status '+(ok?'sync-ok':'sync-err');
+  setTimeout(()=>{el.textContent='Preparado'; el.className='sync-status';}, 3000);
+}
+
+const SHEET_URL='https://script.google.com/macros/s/AKfycbyJeZE9Z6i8Ex9iCiV30_zQBwbpo9rhlRgUWshTEih0Ve4mmPF4VV0BQCIW_IxdLvxf_g/exec';
+
 async function syncToSheets(){
-  showSyncStatus('Sincronizando...');
+  showSyncStatus('Guardando...');
   try{
-    const data=[
-      ['deudas',JSON.stringify(deudas)],
-      ['fijos',JSON.stringify(fijos)],
-      ['pagados',JSON.stringify(pagados)],
-      ['categorias',JSON.stringify(categorias)],
-      ['saldados',JSON.stringify(saldados)]
-    ];
-    const response=await fetch(SHEET_API_URL,{
+    const payload={deudas,fijos,pagados,categorias,saldados};
+    const resp=await fetch(SHEET_URL,{
       method:'POST',
-      body:JSON.stringify(data)
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify(payload)
     });
-    const result=await response.json();
-    if(result.success){
-      showSyncStatus('✓ Sincronizado',true);
-    }else{
-      showSyncStatus('✗ Error sync',false);
-    }
-  }catch(e){
-    showSyncStatus('✗ Error',false);
-  }
+    const result=await resp.json();
+    if(result.success){showSyncStatus('✓ Guardado',true);}
+    else{showSyncStatus('✗ Error: '+result.error,false);}
+  }catch(e){showSyncStatus('✗ Error: '+e.message,false);}
+}
+
+async function cargarDesdeSheets(){
+  showSyncStatus('Cargando...');
+  try{
+    const resp=await fetch(SHEET_URL+'?action=load');
+    const result=await resp.json();
+    if(result.success&&result.data){
+      const d=result.data;
+      deudas=d.deudas||DEFAULT_DEUDAS;
+      fijos=d.fijos||DEFAULT_FIJOS;
+      pagados=d.pagados||{};
+      categorias=d.categorias||DEFAULT_CATS;
+      saldados=d.saldados||{};
+      guardar();
+      renderResumen();
+      showSyncStatus('✓ Cargado',true);
+    }else{showSyncStatus('✗ Sin datos',false);}
+  }catch(e){showSyncStatus('✗ Error: '+e.message,false);}
 }
 
 function renderResumen(){
@@ -291,7 +302,6 @@ function guardarEdit(id){
   d.negativo=document.getElementById('e-neg').value==='true';
   editingId=null;
   guardar();
-  syncToSheets();
   renderLista();
 }
 
@@ -350,13 +360,12 @@ function agregarDeuda(){
   if(!persona||!producto||isNaN(monto)||isNaN(cini)||isNaN(ctot)){alert('Completá campos');return;}
   deudas.push({id:Date.now(),persona,producto,cuotaInicio:cini,cuotaTotal:ctot,monto,mesInicio,anoInicio,negativo});
   guardar();
-  syncToSheets();
   renderAgregar();
   alert(`"${producto}" agregado para ${persona}`);
 }
 
-function eliminarDeuda(id){deudas=deudas.filter(x=>x.id!==id);guardar();syncToSheets();renderLista();}
-function eliminarCategoria(id){categorias=categorias.filter(x=>x.id!==id);guardar();syncToSheets();renderCategorias();}
+function eliminarDeuda(id){deudas=deudas.filter(x=>x.id!==id);guardar();renderLista();}
+function eliminarCategoria(id){categorias=categorias.filter(x=>x.id!==id);guardar();renderCategorias();}
 function changeMonth(dir){currentMonthIdx=Math.max(0,Math.min(11,currentMonthIdx+dir));renderResumen();}
 function changeFijoMonth(dir){currentMonthIdx=Math.max(0,Math.min(11,currentMonthIdx+dir));renderFijos();}
 
