@@ -461,7 +461,13 @@ function renderResumen(){
           <td style="text-align:right">${isSub?'—':c+'/'+d.cuotaTotal}</td>
           <td style="text-align:right;color:${d.negativo?'#f88':'#fff'}">${d.negativo?'-':''}${fmt(d.monto)}</td></tr>`;
       });
-      html+=`<tr class="total-row"><td colspan="2" style="text-align:right">Total</td><td style="text-align:right;color:${tot<0?'#f88':'#fff'}">${tot<0?'-':''}${fmt(tot)}</td></tr></tbody></table></div>`;
+      html+=`<tr class="total-row"><td colspan="2" style="text-align:right">Total</td><td style="text-align:right;color:${tot<0?'#f88':'#fff'}">${tot<0?'-':''}${fmt(tot)}</td></tr></tbody></table>
+      <div style="text-align:right;margin-top:8px;">
+        <button onclick="copiarPersona('${p}',${M},${A})" style="background:#333;border-color:#444;color:#aaa;font-size:11px;padding:5px 10px;">
+          📋 Copiar
+        </button>
+      </div>
+      </div>`;
     });
   }
   if(fijosAct.length){
@@ -690,6 +696,26 @@ function agregarFijo(){
 }
 function eliminarFijo(id){fijos=fijos.filter(x=>x.id!==id);guardar();renderFijos();}
 function eliminarDeuda(id){deudas=deudas.filter(x=>x.id!==id);guardar();renderLista();}
+function copiarPersona(p,m,a){
+  const items=deudas.filter(d=>d.persona===p&&getCuotaEnMes(d,m,a)!==null);
+  if(!items.length)return;
+  const tot=items.reduce((s,d)=>s+getMonto(d),0);
+  const isSub=d=>d.cuotaTotal===999;
+  let txt=`${p} - ${MONTHS[m]} ${a}\n`;
+  items.forEach(d=>{
+    const c=getCuotaEnMes(d,m,a);
+    const cuotaStr=isSub(d)?'Sub':c+'/'+d.cuotaTotal;
+    txt+=`• ${d.producto}: ${d.negativo?'-':''}${fmt(d.monto)} (${cuotaStr})\n`;
+  });
+  txt+=`Total: ${tot<0?'-':''}${fmt(tot)}`;
+  navigator.clipboard.writeText(txt).then(()=>{
+    // Mostrar feedback temporal en el botón
+    const btns=[...document.querySelectorAll('button')].filter(b=>b.textContent.includes('Copiar'));
+    const btn=btns.find(b=>b.getAttribute('onclick')&&b.getAttribute('onclick').includes(`'${p}'`));
+    if(btn){const orig=btn.innerHTML;btn.innerHTML='✓ Copiado';btn.style.color='#6f8';setTimeout(()=>{btn.innerHTML=orig;btn.style.color='';},2000);}
+  }).catch(()=>alert('No se pudo copiar. Copiá manualmente:\n\n'+txt));
+}
+
 function changeMonth(dir){currentMonthIdx=Math.max(0,Math.min(11,currentMonthIdx+dir));renderResumen();}
 function changeFijoMonth(dir){currentMonthIdx=Math.max(0,Math.min(11,currentMonthIdx+dir));renderFijos();}
 function agregarDeuda(){
