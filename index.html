@@ -1,400 +1,75 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gestor de Deudas y Gastos</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #1a1a1a;
-      color: #fff;
-      padding: 1rem;
-    }
-    .container { max-width: 900px; margin: 0 auto; }
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 8px; }
-    .sync-status { font-size: 12px; padding: 4px 8px; border-radius: 4px; background: #222; }
-    .sync-ok { color: #6f8; background: #2a5a3a; }
-    .sync-err { color: #f88; background: #5a2a2a; }
-    .tabs { display: flex; gap: 6px; margin-bottom: 1rem; flex-wrap: wrap; }
-    .tab {
-      padding: 8px 14px;
-      border-radius: 6px;
-      border: 1px solid #444;
-      background: #222;
-      color: #aaa;
-      cursor: pointer;
-      font-size: 13px;
-      transition: all 0.2s;
-    }
-    .tab.active {
-      background: #2a5a3a;
-      color: #fff;
-      border-color: #4a7a5a;
-    }
-    .card {
-      background: #222;
-      border: 1px solid #333;
-      border-radius: 8px;
-      padding: 1rem;
-      margin-bottom: 1rem;
-    }
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .card-title { font-size: 15px; font-weight: 500; }
-    .badge {
-      font-size: 11px;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-weight: 500;
-    }
-    .badge-pos { background: #2a5a3a; color: #6f8; }
-    .badge-neg { background: #5a2a2a; color: #f88; }
-    .badge-saldado { background: #2a5a3a; color: #6f8; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #333; }
-    th { font-size: 12px; color: #aaa; font-weight: 500; }
-    tr.paid { opacity: 0.6; }
-    tr.paid td { color: #666; }
-    .hide { display: none !important; }
-    .form-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 12px;
-      margin-bottom: 12px;
-    }
-    .form-group { display: flex; flex-direction: column; }
-    .form-group label { font-size: 12px; color: #aaa; margin-bottom: 4px; font-weight: 500; }
-    .form-group input, .form-group select {
-      padding: 8px;
-      border: 1px solid #444;
-      border-radius: 4px;
-      background: #222;
-      color: #fff;
-      font-size: 13px;
-    }
-    button {
-      padding: 8px 16px;
-      border-radius: 4px;
-      border: 1px solid #444;
-      background: #222;
-      color: #aaa;
-      cursor: pointer;
-      font-size: 13px;
-      transition: all 0.2s;
-    }
-    button:hover { background: #333; }
-    button.primary { background: #2a5a3a; color: #fff; border-color: #4a7a5a; }
-    button.danger { background: #5a2a2a; color: #f88; border-color: #7a3a3a; }
-    .metric { text-align: center; }
-    .metric-label { font-size: 12px; color: #aaa; }
-    .metric-value { font-size: 24px; font-weight: bold; margin-top: 4px; }
-    .metric-value.neg { color: #f88; }
-    .metric-value.pos { color: #6f8; }
-    .month-nav { display: flex; justify-content: center; align-items: center; gap: 12px; margin-bottom: 1rem; }
-    .month-nav button { padding: 4px 8px; font-size: 12px; }
-    .month-label { font-size: 16px; font-weight: 500; min-width: 120px; text-align: center; }
-    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 1rem; }
-    .section-divider { font-size: 12px; color: #aaa; font-weight: 500; margin: 1rem 0 0.5rem 0; }
-    .grand-total { background: #222; border: 1px solid #333; border-radius: 8px; padding: 1rem; margin-top: 1rem; text-align: center; font-size: 14px; }
-    .saldado { opacity: 0.6; text-decoration: line-through; }
-  </style>
+<meta charset="UTF-8">
+<title>Tester Google Sheets</title>
+<style>
+  body { font-family: sans-serif; max-width: 500px; margin: 40px auto; padding: 0 20px; }
+  input { width: 100%; padding: 8px; margin: 6px 0 14px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+  button { width: 100%; padding: 10px; background: #4F46E5; color: white; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; margin-bottom: 8px; }
+  button:hover { background: #4338CA; }
+  #log { background: #f4f4f4; border-radius: 6px; padding: 14px; font-family: monospace; font-size: 12px; white-space: pre-wrap; min-height: 80px; margin-top: 16px; }
+  .ok  { color: #16a34a; }
+  .err { color: #dc2626; }
+</style>
 </head>
 <body>
-<div class="container">
-  <div class="header">
-    <h1 style="font-size: 20px;">Gestor de Deudas</h1>
-    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
-      <span id="sync-status" class="sync-status">Preparado</span>
-      <button onclick="syncToSheets()" style="font-size: 12px;">💾 Sincronizar</button>
-      <button onclick="cargarDesdeSheets()" style="font-size: 12px;">🔄 Cargar</button>
-    </div>
-  </div>
-  
-  <div class="tabs">
-    <button class="tab active" onclick="setView('resumen')">📅 Mes</button>
-    <button class="tab" onclick="setView('detalle')">👥 Personas</button>
-    <button class="tab" onclick="setView('lista')">📋 Cuotas</button>
-    <button class="tab" onclick="setView('fijos')">🏠 Fijos</button>
-    <button class="tab" onclick="setView('categorias')">🏷 Categorías</button>
-    <button class="tab" onclick="setView('agregar')">➕ Agregar</button>
-  </div>
 
-  <div id="view-resumen"></div>
-  <div id="view-detalle" class="hide"></div>
-  <div id="view-lista" class="hide"></div>
-  <div id="view-fijos" class="hide"></div>
-  <div id="view-categorias" class="hide"></div>
-  <div id="view-agregar" class="hide"></div>
-</div>
+<h2>Tester Google Sheets</h2>
+
+<label>Descripción</label>
+<input id="desc" value="Gasto de prueba" />
+
+<label>Monto</label>
+<input id="monto" type="number" value="1234" />
+
+<label>Categoría</label>
+<input id="cat" value="Test" />
+
+<button onclick="enviar()">Enviar a Sheets (POST no-cors)</button>
+<button onclick="testGet()" style="background:#059669;">Probar conexión (GET)</button>
+
+<div id="log">Esperando...</div>
 
 <script>
-const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const FREQ_LABEL={mensual:'Mensual',bimestral:'Bimestral',trimestral:'Trimestral',semestral:'Semestral',anual:'Anual'};
-const FREQ_MONTHS={mensual:1,bimestral:2,trimestral:3,semestral:6,anual:12};
-const CAT_COLORS=['#378ADD','#1D9E75','#D85A30','#7F77DD','#D4537E','#BA7517','#639922','#E24B4A','#888780'];
+const URL = "https://script.google.com/macros/s/AKfycbwyEg7W8O6UiHTyTI-nxPrjLVKZ0zb9Dx6W7Y8Amlda8x-7ffiGULJxzrDBXdCzvGnFYw/exec";
 
-const TODAY=new Date();
-const CURRENT_MONTH=TODAY.getMonth();
-const CURRENT_YEAR=TODAY.getFullYear();
-
-let currentView='resumen', currentMonthIdx=CURRENT_MONTH;
-let deudas=[],fijos=[],pagados={},categorias=[],saldados={};
-let editingId=null;
-
-const DEFAULT_DEUDAS=[
-  {id:1,persona:'Ramón',producto:'PS5',cuotaInicio:10,cuotaTotal:18,monto:71612,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:2,persona:'Ramón',producto:'Joystick',cuotaInicio:5,cuotaTotal:18,monto:9055,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:3,persona:'Ramón',producto:'Cable',cuotaInicio:2,cuotaTotal:6,monto:10653,mesInicio:4,anoInicio:2026,negativo:false},
-  {id:4,persona:'Ramón',producto:'Colchón',cuotaInicio:1,cuotaTotal:18,monto:66274,mesInicio:5,anoInicio:2026,negativo:false},
-  {id:5,persona:'Ramón',producto:'Tele',cuotaInicio:1,cuotaTotal:12,monto:150000,mesInicio:6,anoInicio:2026,negativo:false},
-];
-const DEFAULT_CATS=[
-  {id:201,nombre:'Servicios',color:'#378ADD'},
-  {id:202,nombre:'Vivienda',color:'#1D9E75'},
-  {id:203,nombre:'Impuestos',color:'#D85A30'},
-];
-const DEFAULT_FIJOS=[
-  {id:301,nombre:'Karate',monto:25000,frecuencia:'mensual',vencimiento:30,mesBase:5,anoBase:2026,categoriaId:201},
-  {id:302,nombre:'Colegio',monto:91000,frecuencia:'mensual',vencimiento:10,mesBase:5,anoBase:2026,categoriaId:201},
-];
-
-function save(key,val){try{localStorage.setItem(key,JSON.stringify(val));return true;}catch(e){return false;}}
-function load(key){try{const v=localStorage.getItem(key);return v?JSON.parse(v):null;}catch(e){return null;}}
-function fmt(n){return '$'+Math.round(Math.abs(n)).toLocaleString('es-AR');}
-
-function getCuotaEnMes(d,m,a){
-  const mesActual=a*12+m;
-  const mesDeuda=(d.anoInicio||2026)*12+d.mesInicio;
-  const o=mesActual-mesDeuda;
-  if(o<0)return null;
-  const c=d.cuotaInicio+o;
-  return c>d.cuotaTotal?null:c;
-}
-function getPersonas(){return[...new Set(deudas.map(d=>d.persona))];}
-function getMonto(d){return d.negativo?-d.monto:d.monto;}
-function getTotalDeudaMes(m,a){return deudas.reduce((s,d)=>{const c=getCuotaEnMes(d,m,a);return c!==null?s+getMonto(d):s;},0);}
-function getTotalFijosMes(m,a){return fijos.reduce((s,f)=>fijoActivoEnMes(f,m,a)?s+f.monto:s,0);}
-function fijoActivoEnMes(f,m,a){const mesActual=a*12+m;const mesBase=(f.anoBase||2026)*12+f.mesBase;const o=mesActual-mesBase;return o>=0&&o%FREQ_MONTHS[f.frecuencia]===0;}
-function pagoKey(id,m,a){return`${id}-${m}-${a}`;}
-function isPagado(id,m,a){return!!(pagados[pagoKey(id,m,a)]);}
-function togglePago(id,m,a){const k=pagoKey(id,m,a);if(pagados[k])delete pagados[k];else pagados[k]=true;guardar();renderResumen();}
-function saldoKey(p,m,a){return`${p}-${m}-${a}`;}
-function isSaldado(p,m,a){return!!saldados[saldoKey(p,m,a)];}
-function toggleSaldado(p,m,a){const k=saldoKey(p,m,a);if(saldados[k])delete saldados[k];else saldados[k]=true;guardar();renderResumen();}
-
-function guardar(){
-  save('gd-deudas',deudas);
-  save('gd-fijos',fijos);
-  save('gd-pagados',pagados);
-  save('gd-cats',categorias);
-  save('gd-saldados',saldados);
+function log(msg, cls) {
+  const el = document.getElementById('log');
+  el.textContent = msg;
+  el.className = cls || '';
 }
 
-function showSyncStatus(msg, ok=true){
-  const el=document.getElementById('sync-status');
-  el.textContent=msg;
-  el.className='sync-status '+(ok?'sync-ok':'sync-err');
-  setTimeout(()=>{el.textContent='Preparado'; el.className='sync-status';}, 3000);
-}
-
-const SHEET_URL='https://script.google.com/macros/s/AKfycbyJeZE9Z6i8Ex9iCiV30_zQBwbpo9rhlRgUWshTEih0Ve4mmPF4VV0BQCIW_IxdLvxf_g/exec';
-
-async function syncToSheets(){
-  showSyncStatus('Guardando...');
-  try{
-    const payload={deudas,fijos,pagados,categorias,saldados};
-    const resp=await fetch(SHEET_URL,{
-      method:'POST',
-      body:JSON.stringify(payload)
-    });
-    const text=await resp.text();
-    if(text==='OK'){showSyncStatus('✓ Guardado',true);}
-    else{showSyncStatus('✗ Error',false);}
-  }catch(e){showSyncStatus('✗ Error',false);}
-}
-
-async function cargarDesdeSheets(){
-  showSyncStatus('Cargando...');
-  try{
-    const resp=await fetch(SHEET_URL+'?action=load', {mode:'cors'});
-    if(!resp.ok) throw new Error(resp.status);
-    const result=await resp.json();
-    if(result.success&&result.data){
-      const d=result.data;
-      deudas=d.deudas||DEFAULT_DEUDAS;
-      fijos=d.fijos||DEFAULT_FIJOS;
-      pagados=d.pagados||{};
-      categorias=d.categorias||DEFAULT_CATS;
-      saldados=d.saldados||{};
-      guardar();
-      renderResumen();
-      showSyncStatus('✓ Cargado',true);
-    }else{showSyncStatus('✗ Sin datos',false);}
-  }catch(e){showSyncStatus('✗ Error',false);}
-}
-
-function renderResumen(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
-  const personas=getPersonas();
-  const td=getTotalDeudaMes(M,A),tf=getTotalFijosMes(M,A),tg=td+tf;
-  let html=`<div class="month-nav"><button onclick="changeMonth(-1)">←</button><span class="month-label">${MONTHS[M]} ${A}</span><button onclick="changeMonth(1)">→</button></div>`;
-  html+=`<div class="summary-grid"><div class="metric"><div class="metric-label">Total mes</div><div class="metric-value">${fmt(tg)}</div></div>`;
-  html+=`<div class="metric"><div class="metric-label">Cuotas</div><div class="metric-value ${td<0?'neg':'pos'}">${td<0?'-':''}${fmt(td)}</div></div>`;
-  html+=`<div class="metric"><div class="metric-label">Fijos</div><div class="metric-value neg">-${fmt(tf)}</div></div></div>`;
-  if(personas.length){
-    html+=`<div class="section-divider">Cuotas por persona</div>`;
-    personas.forEach(p=>{
-      const items=deudas.filter(d=>d.persona===p&&getCuotaEnMes(d,M,A)!==null);
-      if(!items.length)return;
-      const tot=items.reduce((s,d)=>s+getMonto(d),0);
-      const sald=isSaldado(p,M,A);
-      html+=`<div class="card"><div class="card-header"><div style="flex:1"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" ${sald?'checked':''} onchange="toggleSaldado('${p}',${M},${A})"><span class="card-title ${sald?'saldado':''}">${p}</span>${sald?'<span class="badge badge-saldado">Saldado</span>':''}</label></div><span class="badge ${tot<0?'badge-neg':'badge-pos'}">${tot<0?'-':''}${fmt(tot)}</span></div>`;
-      html+=`<table><thead><tr><th>Producto</th><th style="width:40%;text-align:right">Cuota</th><th style="text-align:right">Monto</th></tr></thead><tbody>`;
-      items.forEach(d=>{
-        const c=getCuotaEnMes(d,M,A);
-        const isLast=c===d.cuotaTotal;
-        html+=`<tr class="${sald?'paid':''}"><td>${d.producto}${isLast?'<span style="font-size:10px;background:#2a5a3a;color:#6f8;padding:2px 4px;border-radius:2px;margin-left:4px">última</span>':''}</td><td style="text-align:right">${c}/${d.cuotaTotal}</td><td style="text-align:right;color:${d.negativo?'#f88':'#fff'}">${d.negativo?'-':''}${fmt(d.monto)}</td></tr>`;
-      });
-      html+=`</tbody></table></div>`;
-    });
+async function testGet() {
+  log('Probando GET...');
+  try {
+    const r = await fetch(URL);
+    const text = await r.text();
+    log('✓ Respuesta:\n' + text, 'ok');
+  } catch(e) {
+    log('✗ Error GET: ' + e.message, 'err');
   }
-  document.getElementById('view-resumen').innerHTML=html;
 }
 
-function renderLista(){
-  let totPos=0,totNeg=0;
-  deudas.forEach(d=>{if(d.cuotaTotal===999)return;const r=d.cuotaTotal-d.cuotaInicio+1;if(d.negativo)totNeg+=r*d.monto;else totPos+=r*d.monto;});
-  const neto=totPos-totNeg;
-  let html=`<div class="card"><table><thead><tr><th>Persona</th><th>Producto</th><th style="text-align:center">C</th><th style="text-align:center">T</th><th style="text-align:right">Monto</th><th style="text-align:center">Año</th><th style="text-align:center">Dir</th><th></th></tr></thead><tbody>`;
-  deudas.forEach(d=>{
-    const isSub=d.cuotaTotal===999;
-    const isEditing=editingId===d.id;
-    if(isEditing){
-      html+=`<tr style="background:#1a2a1a"><td colspan="8"><div style="padding:8px"><div style="font-size:12px;color:#aaa;margin-bottom:8px">✏️ Editando: <strong style="color:#fff">${d.producto}</strong></div><div class="form-grid"><div class="form-group"><label>Persona</label><input id="e-persona" value="${d.persona}"></div><div class="form-group"><label>Producto</label><input id="e-producto" value="${d.producto}"></div><div class="form-group"><label>Monto</label><input id="e-monto" type="number" value="${d.monto}"></div><div class="form-group"><label>Cuota ini</label><input id="e-cini" type="number" value="${d.cuotaInicio}"></div><div class="form-group"><label>Total cuotas</label><input id="e-ctot" type="number" value="${isSub?'':d.cuotaTotal}"></div><div class="form-group"><label>Mes</label><select id="e-mes">${MONTHS.map((m,i)=>`<option value="${i}"${i===d.mesInicio?' selected':''}>${m}</option>`).join('')}</select></div><div class="form-group"><label>Año</label><input id="e-ano" type="number" value="${d.anoInicio||2026}"></div><div class="form-group"><label>Dirección</label><select id="e-neg"><option value="false"${!d.negativo?' selected':''}>Me deben</option><option value="true"${d.negativo?' selected':''}>Yo debo</option></select></div></div><div style="display:flex;gap:8px;margin-top:10px"><button class="primary" onclick="guardarEdit(${d.id})">✓ Guardar</button><button onclick="cancelEdit()">Cancelar</button><button class="danger" onclick="eliminarDeuda(${d.id})">✕ Eliminar</button></div></div></td></tr>`;
-    }else{
-      html+=`<tr style="cursor:pointer" onclick="startEdit(${d.id})"><td>${d.persona}</td><td>${d.producto}</td><td style="text-align:center">${d.cuotaInicio}</td><td style="text-align:center">${isSub?'S':d.cuotaTotal}</td><td style="text-align:right;color:${d.negativo?'#f88':'#fff'}">${d.negativo?'-':''}${fmt(d.monto)}</td><td style="text-align:center">${d.anoInicio||2026}</td><td style="text-align:center"><span class="badge ${d.negativo?'badge-neg':'badge-pos'}">${d.negativo?'D':'A'}</span></td><td onclick="event.stopPropagation()"><button class="danger" onclick="eliminarDeuda(${d.id})">✕</button></td></tr>`;
-    }
-  });
-  html+=`</tbody></table></div><div class="grand-total"><strong>Total acumulado (excl. subs)</strong><br>Te deben: ${fmt(totPos)} | Debés: ${fmt(totNeg)} | <strong>Neto: ${fmt(neto)}</strong></div>`;
-  document.getElementById('view-lista').innerHTML=html;
-}
-
-function startEdit(id){editingId=(editingId===id)?null:id;renderLista();}
-function cancelEdit(){editingId=null;renderLista();}
-function guardarEdit(id){
-  const d=deudas.find(x=>x.id===id);if(!d)return;
-  d.persona=document.getElementById('e-persona').value.trim();
-  d.producto=document.getElementById('e-producto').value.trim();
-  d.monto=parseFloat(document.getElementById('e-monto').value);
-  d.cuotaInicio=parseInt(document.getElementById('e-cini').value);
-  const ctot=document.getElementById('e-ctot').value.trim();
-  d.cuotaTotal=ctot===''?999:parseInt(ctot);
-  d.mesInicio=parseInt(document.getElementById('e-mes').value);
-  d.anoInicio=parseInt(document.getElementById('e-ano').value)||2026;
-  d.negativo=document.getElementById('e-neg').value==='true';
-  editingId=null;
-  guardar();
-  renderLista();
-}
-
-function renderDetalle(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
-  const personas=getPersonas();
-  let html='';
-  personas.forEach(p=>{
-    const items=deudas.filter(d=>d.persona===p);
-    if(!items.length)return;
-    const totalResta=items.reduce((s,d)=>{if(d.cuotaTotal===999)return s;return s+(d.cuotaTotal-d.cuotaInicio+1)*(d.negativo?-d.monto:d.monto);},0);
-    const sald=isSaldado(p,M,A);
-    html+=`<div class="card"><div class="card-header"><div style="flex:1"><label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" ${sald?'checked':''} onchange="toggleSaldado('${p}',${M},${A})"><span class="card-title ${sald?'saldado':''}">${p}</span>${sald?'<span class="badge badge-saldado">Saldado</span>':''}</label></div><span class="badge ${totalResta<0?'badge-neg':'badge-pos'}">Resta: ${totalResta<0?'-':''}${fmt(totalResta)}</span></div><table><thead><tr><th>Producto</th><th style="text-align:right">Cuotas</th><th style="text-align:right">Por cuota</th><th style="text-align:right">Total</th></tr></thead><tbody>`;
-    items.forEach(d=>{
-      const isSub=d.cuotaTotal===999,r=isSub?'∞':(d.cuotaTotal-d.cuotaInicio+1),tr=isSub?'∞':fmt(r*d.monto);
-      html+=`<tr class="${sald?'paid':''}"><td>${d.producto}</td><td style="text-align:right">${isSub?'Sub':d.cuotaInicio+'/'+d.cuotaTotal}</td><td style="text-align:right;color:${d.negativo?'#f88':'#fff'}">${d.negativo?'-':''}${fmt(d.monto)}</td><td style="text-align:right;color:${d.negativo?'#f88':'#fff'}">${d.negativo?'-':''}${tr}</td></tr>`;
+async function enviar() {
+  const data = {
+    descripcion: document.getElementById('desc').value,
+    monto: parseFloat(document.getElementById('monto').value),
+    categoria: document.getElementById('cat').value
+  };
+  log('Enviando...\n' + JSON.stringify(data, null, 2));
+  try {
+    await fetch(URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
     });
-    html+=`</tbody></table></div>`;
-  });
-  document.getElementById('view-detalle').innerHTML=html;
-}
-
-function renderFijos(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
-  let html=`<div class="month-nav"><button onclick="changeFijoMonth(-1)">←</button><span class="month-label">${MONTHS[M]} ${A}</span><button onclick="changeFijoMonth(1)">→</button></div>`;
-  html+=`<div class="summary-grid"><div class="metric"><div class="metric-label">Total</div><div class="metric-value neg">-${fmt(getTotalFijosMes(M,A))}</div></div></div>`;
-  if(fijos.length){
-    html+=`<div class="card"><table><thead><tr><th>✓</th><th>Nombre</th><th style="text-align:center">Frecuencia</th><th style="text-align:center">Vence</th><th style="text-align:right">Monto</th></tr></thead><tbody>`;
-    fijos.forEach(f=>{
-      const paid=isPagado(f.id,M,A),activo=fijoActivoEnMes(f,M,A);
-      html+=`<tr class="${paid&&activo?'paid':''}"><td>${activo?`<input type="checkbox" ${paid?'checked':''} onchange="togglePago(${f.id},${M},${A})">`:'-'}</td><td>${f.nombre}</td><td style="text-align:center;font-size:11px">${FREQ_LABEL[f.frecuencia]}</td><td style="text-align:center">${f.vencimiento}</td><td style="text-align:right;color:${paid&&activo?'#666':'#f88'}">${paid&&activo?'<s>':''}${fmt(f.monto)}${paid&&activo?'</s>':''}</td></tr>`;
-    });
-    html+=`</tbody></table></div>`;
+    log('✓ Enviado (no-cors, sin respuesta legible).\n\nAbrí tu Google Sheet y fijate si apareció la fila nueva.\n\nSi aparece → funciona ✓\nSi no aparece → hay un error en el script.', 'ok');
+  } catch(e) {
+    log('✗ Error POST: ' + e.message, 'err');
   }
-  document.getElementById('view-fijos').innerHTML=html;
 }
-
-function renderCategorias(){
-  let html=`<div class="card"><strong>Categorías</strong><table style="margin-top:10px"><thead><tr><th>Nombre</th><th style="text-align:right">Gastos</th><th></th></tr></thead><tbody>`;
-  categorias.forEach(c=>{
-    const count=fijos.filter(f=>f.categoriaId===c.id).length;
-    html+=`<tr><td><span style="width:12px;height:12px;background:${c.color};border-radius:50%;display:inline-block;margin-right:4px"></span>${c.nombre}</td><td style="text-align:right">${count}</td><td>${count===0?`<button class="danger" onclick="eliminarCategoria(${c.id})">✕</button>`:''}</td></tr>`;
-  });
-  html+=`</tbody></table></div>`;
-  document.getElementById('view-categorias').innerHTML=html;
-}
-
-function renderAgregar(){
-  const ps=getPersonas();
-  let html=`<div class="card"><strong>Nueva deuda en cuotas</strong><div class="form-grid" style="margin-top:10px"><div class="form-group"><label>Persona</label><input id="f-persona" placeholder="Ramón" list="fpl"><datalist id="fpl">${ps.map(p=>`<option value="${p}">`).join('')}</datalist></div><div class="form-group"><label>Producto</label><input id="f-producto" placeholder="PS5"></div><div class="form-group"><label>Monto/cuota</label><input id="f-monto" type="number" placeholder="50000"></div><div class="form-group"><label>Cuota ini</label><input id="f-cini" type="number" value="1"></div><div class="form-group"><label>Total cuotas</label><input id="f-ctot" type="number" placeholder="12"></div><div class="form-group"><label>Mes</label><select id="f-mes">${MONTHS.map((m,i)=>`<option value="${i}"${i===CURRENT_MONTH?' selected':''}>${m}</option>`).join('')}</select></div><div class="form-group"><label>Año</label><input id="f-ano" type="number" value="${CURRENT_YEAR}"></div><div class="form-group"><label>Dirección</label><select id="f-neg"><option value="false">Me deben</option><option value="true">Yo debo</option></select></div></div><button class="primary" onclick="agregarDeuda()">+ Agregar</button></div>`;
-  document.getElementById('view-agregar').innerHTML=html;
-}
-
-function agregarDeuda(){
-  const persona=document.getElementById('f-persona').value.trim(),producto=document.getElementById('f-producto').value.trim(),monto=parseFloat(document.getElementById('f-monto').value),cini=parseInt(document.getElementById('f-cini').value),ctot=parseInt(document.getElementById('f-ctot').value),mesInicio=parseInt(document.getElementById('f-mes').value),anoInicio=parseInt(document.getElementById('f-ano').value)||CURRENT_YEAR,negativo=document.getElementById('f-neg').value==='true';
-  if(!persona||!producto||isNaN(monto)||isNaN(cini)||isNaN(ctot)){alert('Completá campos');return;}
-  deudas.push({id:Date.now(),persona,producto,cuotaInicio:cini,cuotaTotal:ctot,monto,mesInicio,anoInicio,negativo});
-  guardar();
-  renderAgregar();
-  alert(`"${producto}" agregado para ${persona}`);
-}
-
-function eliminarDeuda(id){deudas=deudas.filter(x=>x.id!==id);guardar();renderLista();}
-function eliminarCategoria(id){categorias=categorias.filter(x=>x.id!==id);guardar();renderCategorias();}
-function changeMonth(dir){currentMonthIdx=Math.max(0,Math.min(11,currentMonthIdx+dir));renderResumen();}
-function changeFijoMonth(dir){currentMonthIdx=Math.max(0,Math.min(11,currentMonthIdx+dir));renderFijos();}
-
-function setView(v){
-  currentView=v;
-  document.querySelectorAll('[id^="view-"]').forEach(el=>{el.classList.add('hide');});
-  document.getElementById('view-'+v).classList.remove('hide');
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  event.target.classList.add('active');
-  if(v==='resumen')renderResumen();
-  else if(v==='detalle')renderDetalle();
-  else if(v==='lista')renderLista();
-  else if(v==='fijos')renderFijos();
-  else if(v==='categorias')renderCategorias();
-  else if(v==='agregar')renderAgregar();
-}
-
-function init(){
-  const sd=load('gd-deudas'),sc=load('gd-cats'),sf=load('gd-fijos'),sp=load('gd-pagados'),ss=load('gd-saldados');
-  deudas=sd||DEFAULT_DEUDAS;
-  categorias=sc||DEFAULT_CATS;
-  pagados=sp||{};
-  saldados=ss||{};
-  fijos=sf||DEFAULT_FIJOS;
-  guardar();
-  renderResumen();
-}
-
-init();
 </script>
 </body>
 </html>
