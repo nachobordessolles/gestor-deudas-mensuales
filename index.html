@@ -1109,101 +1109,191 @@ async function procesarPDF(file){
 }
 
 function extraerCuotasDelPDF(texto,nombre){
-  // Patrón: MERPAGO*ALGO Cuota XX/YY monto
-  const patron=/MERPAGO\*([^\s]+)\s+Cuota\s+(\d+)\/(\d+)\s+([\d.,]+)/g;
-  let match;
-  const cuotas=[];
-  while((match=patron.exec(texto))!==null){
-    cuotas.push({
-      descripcion:match[1].substring(0,30),
-      cuotaActual:parseInt(match[2]),
-      cuotaTotal:parseInt(match[3]),
-      monto:parseFloat(match[4].replace(/\./g,'').replace(',','.')),
-      fecha:new Date(),
-      tarjeta:nombre
+  const lineas=texto.split('\n');
+  
+  // Detectar secciones por número de tarjeta: "Tarjeta XXXX Total Consumos de NOMBRE"
+  const seccionPatron=/Tarjeta\s+(\d{4})\s+Total\s+Consumos\s+de\s+(.+?)\s+[\d.,]+/gi;
+  const secciones=[];
+  let secMatch;
+  while((secMatch=seccionPatron.exec(texto))!==null){
+    secciones.push({
+      numero:secMatch[1],
+      titular:secMatch[2].trim(),
+      posicion:secMatch.index
     });
   }
-  
-  if(cuotas.length===0){alert('No se encontraron cuotas en el PDF');return;}
-  
-  // Crear tarjeta
+
+  // Parsear todas las líneas buscando consumos
+  const cuotaPatron=/([A-Z0-9*]+\*[^\s]+)\s+Cuota\s+(\d+)\/(\d+)\s+([\d.]+,\d{2})/g;
+  const unPagoPatron=/([A-Z0-9*]+\*[^\s]+|[A-Z][A-Z\s]+)\s+([\d.]+,\d{2})(?!\s*-)/g;
+
+  const todosCuotas=[];
+  const todosUnPago=[];
+
+  // Extraer cuotas en cuotas
+  let cm;
+  while((cm=cuotaPatron.exec(texto))!==null){
+    const monto=parseFloat(cm[4].replace(/\./g,'').replace(',','.'));
+    if(isNaN(monto)||monto<=0)continue;
+    todosCuotas.push({
+      descripcion:cm[1].replace(/^.*?\*/,'').substring(0,25),
+      cuotaActual:parseInt(cm[2]),
+      cuotaTotal:parseInt(cm[3]),
+      monto,
+      posicion:cm.index
+    });
+  }
+
+  // Extraer consumos en 1 pago (no tienen "Cuota X/Y")
+  // Buscar líneas con monto pero sin "Cuota"
+  const linesUnPago=texto.match(/(?:CHANGO MAS|VITAL SUPER|EDESUR|PARADOR|GALICIA SEGURO|MATAFUEGOS|[A-Z]{4,}[\s]+[A-Z]*)\s+[\d.]+,\d{2}(?!\s*-)/g)||[];
+  linesUnPago.forEach(l=>{
+    const mMatch=l.match(/([\d.]+,\d{2})$/);
+    if(!mMatch)return;
+    const monto=parseFloat(mMatch[1].replace(/\./g,'').replace(',','.'));
+    if(isNaN(monto)||monto<=0||monto>500000)return;
+    const desc=l.replace(mMatch[1],'').trim().substring(0,30);
+    if(desc.length<3)return;
+    todosUnPago.push({descripcion:desc,monto});
+  });
+
+  // Asignar sección de tarjeta a cada cuota según posición
+  function getSecccion(pos){
+    if(secciones.length===0)return{numero:'???',titular:'Desconocido'};
+    let sec=secciones[0];
+    for(const s of secciones){if(s.posicion<=pos)sec=s;}
+    return sec;
+  }
+
+  // Agrupar cuotas por número de tarjeta
+  const porTarjeta={};
+  todosCuotas.forEach(c=>{
+    const sec=getSecccion(c.posicion);
+    const key=sec.numero;
+    if(!porTarjeta[key])porTarjeta[key]={numero:sec.numero,titular:sec.titular,cuotas:[]};
+    porTarjeta[key].cuotas.push(c);
+  });
+
+  if(todosCuotas.length===0&&todosUnPago.length===0){
+    alert('No se encontraron consumos en el PDF');return;
+  }
+
   const tarjeta={
     id:Date.now(),
     nombre:nombre.replace('.pdf',''),
-    cuotas:cuotas,
-    fechaCierre:new Date(),
-    vencimiento:new Date(),
-    saldoTotal:cuotas.reduce((s,c)=>s+c.monto,0)
+    seccionesTarjeta:Object.values(porTarjeta),
+    unPago:todosUnPago,
+    fechaCarga:new Date().toLocaleDateString('es-AR')
   };
   tarjetas.push(tarjeta);
   guardar();
   renderTarjetas();
-  alert(`✓ ${cuotas.length} cuotas cargadas de ${nombre}`);
+  const total=todosCuotas.length+todosUnPago.length;
+  alert(`✓ ${todosCuotas.length} cuotas y ${todosUnPago.length} consumos en 1 pago cargados`);
 }
 
 function renderTarjetas(){
   let html=`<div class="card" style="margin-bottom:1rem">
     <strong>Subir resumen de tarjeta (PDF)</strong>
-    <p style="font-size:12px;color:#999;margin:8px 0">Carga el resumen mensual en PDF y extraeremos automáticamente las cuotas.</p>
-    <input type="file" id="pdf-upload" accept=".pdf" onchange="procesarPDF(this.files[0])" style="display:block;margin:10px 0">
+    <p style="font-size:12px;color:#999;margin:8px 0">Cargá el resumen mensual en PDF — detectamos cuotas por tarjeta y consumos en 1 pago.</p>
+    <input type="file" id="pdf-upload" accept=".pdf" onchange="procesarPDF(this.files[0])" style="display:none">
     <button onclick="document.getElementById('pdf-upload').click()" style="width:100%">📁 Seleccionar PDF</button>
   </div>`;
 
   if(tarjetas.length===0){
     html+=`<div class="card"><p style="color:#666;font-size:13px">Sin tarjetas cargadas aún.</p></div>`;
   } else {
-    const hoy=new Date();
-    const mesActual=hoy.getMonth();
-    const anoActual=hoy.getFullYear();
-
     tarjetas.forEach(t=>{
-      // Cuotas que vencen este mes (cuota 1 = nueva)
-      const cuotasNuevas=t.cuotas.filter(c=>c.cuotaActual===1);
+      const todasCuotas=t.seccionesTarjeta?t.seccionesTarjeta.flatMap(s=>s.cuotas):(t.cuotas||[]);
+      const unPago=t.unPago||[];
+      const cuotasNuevas=todasCuotas.filter(c=>c.cuotaActual===1);
+      const cuotasUltimas=todasCuotas.filter(c=>c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1);
+      const cuotasResto=todasCuotas.filter(c=>c.cuotaActual!==1&&c.cuotaActual!==c.cuotaTotal);
       const totalNuevas=cuotasNuevas.reduce((s,c)=>s+c.monto,0);
-      const cuotasTotal=t.cuotas.reduce((s,c)=>s+c.monto,0);
-      // Cuotas que terminan este mes (última cuota)
-      const cuotasUltimas=t.cuotas.filter(c=>c.cuotaActual===c.cuotaTotal);
       const totalUltimas=cuotasUltimas.reduce((s,c)=>s+c.monto,0);
-      
+      const totalCuotas=todasCuotas.reduce((s,c)=>s+c.monto,0);
+      const totalUnPago=unPago.reduce((s,c)=>s+c.monto,0);
+      const totalGeneral=totalCuotas+totalUnPago;
+
       html+=`<div class="card" style="margin-top:1rem">
         <div class="card-header">
-          <span class="card-title">${t.nombre}</span>
-          <button class="danger" onclick="eliminarTarjeta(${t.id})" style="padding:3px 8px">✕</button>
-        </div>
-        <p style="font-size:12px;color:#999;margin:6px 0">${t.cuotas.length} cuotas | Total: ${fmt(cuotasTotal)}</p>
-        
-        <div class="summary-grid" style="margin:10px 0">
-          <div class="metric"><div class="metric-label">Cuotas nuevas</div><div class="metric-value pos">${cuotasNuevas.length}</div></div>
-          <div class="metric"><div class="metric-label">Monto nuevas</div><div class="metric-value">${fmt(totalNuevas)}</div></div>
-          <div class="metric"><div class="metric-label">Terminan</div><div class="metric-value neg">${cuotasUltimas.length}</div></div>
-        </div>
-
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin:10px 0">
-          <thead><tr style="border-bottom:1px solid #333">
-            <th style="text-align:left;padding:8px">Descripción</th>
-            <th style="text-align:center;padding:8px">Cuota</th>
-            <th style="text-align:right;padding:8px">Monto</th>
-          </tr></thead>
-          <tbody>`;
-      
-      t.cuotas.forEach(c=>{
-        const esUltima=c.cuotaActual===c.cuotaTotal;
-        const esNueva=c.cuotaActual===1;
-        html+=`<tr style="border-bottom:1px solid #333">
-          <td style="padding:6px 8px">${c.descripcion}${esUltima?'<span class="chip last">última</span>':''}${esNueva?'<span class="chip">nueva</span>':''}</td>
-          <td style="text-align:center;padding:6px 8px;font-size:11px">${c.cuotaActual}/${c.cuotaTotal}</td>
-          <td style="text-align:right;padding:6px 8px">${fmt(c.monto)}</td>
-        </tr>`;
-      });
-      
-      html+=`</tbody></table>
-        <div style="background:#2a1a1a;border-radius:6px;padding:10px;margin-top:10px">
-          <div style="display:flex;justify-content:space-between">
-            <span style="font-size:12px;color:#999">Total cargado:</span>
-            <span style="font-size:14px;font-weight:500;color:#f88">${fmt(cuotasTotal)}</span>
+          <span class="card-title">💳 ${t.nombre}</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:11px;color:#666">${t.fechaCarga||''}</span>
+            <button class="danger" onclick="eliminarTarjeta(${t.id})" style="padding:3px 8px">✕</button>
           </div>
         </div>
-      </div>`;
+
+        <div class="summary-grid" style="margin:12px 0">
+          <div class="metric"><div class="metric-label">Total mes</div><div class="metric-value neg">${fmt(totalGeneral)}</div></div>
+          <div class="metric"><div class="metric-label">En cuotas</div><div class="metric-value">${fmt(totalCuotas)}</div></div>
+          <div class="metric"><div class="metric-label">1 pago</div><div class="metric-value neg">${fmt(totalUnPago)}</div></div>
+          <div class="metric"><div class="metric-label">Finalizan</div><div class="metric-value pos">${fmt(totalUltimas)}</div></div>
+        </div>`;
+
+      // ── Secciones por tarjeta ──
+      const secciones=t.seccionesTarjeta||[{numero:'???',titular:'',cuotas:t.cuotas||[]}];
+      secciones.forEach(sec=>{
+        if(!sec.cuotas||sec.cuotas.length===0)return;
+
+        const ultimasSec=sec.cuotas.filter(c=>c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1);
+        const medioSec=sec.cuotas.filter(c=>c.cuotaActual!==1&&c.cuotaActual!==c.cuotaTotal);
+        const nuevasSec=sec.cuotas.filter(c=>c.cuotaActual===1);
+        const ordenadas=[...ultimasSec,...medioSec,...nuevasSec];
+        const totalSec=sec.cuotas.reduce((s,c)=>s+c.monto,0);
+
+        html+=`<div class="section-divider">Tarjeta •••• ${sec.numero} — ${sec.titular}</div>
+        <div class="card" style="padding:8px;margin-bottom:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr>
+              <th style="text-align:left;padding:6px 8px;color:#999">Descripción</th>
+              <th style="text-align:center;padding:6px 8px;color:#999">Cuota</th>
+              <th style="text-align:right;padding:6px 8px;color:#999">Monto</th>
+            </tr></thead><tbody>`;
+
+        ordenadas.forEach(c=>{
+          const esUltima=c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1;
+          const esNueva=c.cuotaActual===1;
+          const colorFila=esUltima?'background:#1a2a1a':esNueva?'background:#1a1a2a':'';
+          html+=`<tr style="border-top:1px solid #333;${colorFila}">
+            <td style="padding:6px 8px">${c.descripcion}
+              ${esUltima?'<span class="chip last">última</span>':''}
+              ${esNueva?'<span class="chip">nueva</span>':''}
+            </td>
+            <td style="text-align:center;padding:6px 8px;font-size:11px;color:#999">${c.cuotaActual}/${c.cuotaTotal}</td>
+            <td style="text-align:right;padding:6px 8px;color:${esUltima?'#6f8':esNueva?'#f88':'#fff'}">${fmt(c.monto)}</td>
+          </tr>`;
+        });
+
+        html+=`<tr style="border-top:1px solid #444;background:#1a1a1a">
+          <td colspan="2" style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Subtotal tarjeta ${sec.numero}:</td>
+          <td style="text-align:right;padding:6px 8px;font-weight:500">${fmt(totalSec)}</td>
+        </tr></tbody></table></div>`;
+      });
+
+      // ── Consumos en 1 pago ──
+      if(unPago.length>0){
+        const totalUp=unPago.reduce((s,c)=>s+c.monto,0);
+        html+=`<div class="section-divider">Consumos en 1 pago</div>
+        <div class="card" style="padding:8px;margin-bottom:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:12px">
+            <thead><tr>
+              <th style="text-align:left;padding:6px 8px;color:#999">Descripción</th>
+              <th style="text-align:right;padding:6px 8px;color:#999">Monto</th>
+            </tr></thead><tbody>`;
+        unPago.forEach(c=>{
+          html+=`<tr style="border-top:1px solid #333">
+            <td style="padding:6px 8px">${c.descripcion}</td>
+            <td style="text-align:right;padding:6px 8px;color:#f88">${fmt(c.monto)}</td>
+          </tr>`;
+        });
+        html+=`<tr style="border-top:1px solid #444;background:#1a1a1a">
+          <td style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Total 1 pago:</td>
+          <td style="text-align:right;padding:6px 8px;font-weight:500;color:#f88">${fmt(totalUp)}</td>
+        </tr></tbody></table></div>`;
+      }
+
+      html+=`</div>`; // cierre card tarjeta
     });
   }
 
