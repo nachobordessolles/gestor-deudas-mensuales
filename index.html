@@ -335,7 +335,8 @@ let currentView='resumen', currentMonthIdx=CURRENT_MONTH;
 let deudas=[],fijos=[],pagados={},categorias=[],saldados={};
 let editingId=null,editingFijoId=null,saveTimer=null;
 let filtroLista='', ordenLista='persona', ordenDir=1;
-let tarjetas=[];
+let tarjetasPorMes={}; // {mes: {tipo-id: {datos}}}
+let mesActualTarjetas=null; // mes seleccionado para cargar tarjetas
 
 const DEFAULT_DEUDAS=[];
 const DEFAULT_CATS=[{id:201,nombre:'Servicios',color:'#378ADD'}];
@@ -351,12 +352,12 @@ function load(key){try{const v=localStorage.getItem(key);return v?JSON.parse(v):
 
 async function guardarSheets(){
   const estado = {
-    deudas, fijos, pagados, categorias, saldados, tarjetas,
+    deudas, fijos, pagados, categorias, saldados, tarjetasPorMes,
     ts: Date.now()
   };
   // Guardar en localStorage como backup inmediato
   save('gd-deudas',deudas);save('gd-fijos',fijos);save('gd-pagados',pagados);
-  save('gd-cats',categorias);save('gd-saldados',saldados);save('gd-tarjetas',tarjetas);
+  save('gd-cats',categorias);save('gd-saldados',saldados);save('gd-tarjetas',tarjetasPorMes);
   try {
     await fetch(SCRIPT_URL, {
       method:'POST', mode:'no-cors',
@@ -1118,7 +1119,12 @@ async function debugPDF(file){
   reader.readAsArrayBuffer(file);
 }
 
-async function procesarPDF(file){
+async function procesarPDFConTipo(file){
+  const tipo=document.getElementById('tipo-tarjeta').value;
+  const mes=document.getElementById('mes-tarjeta').value;
+  
+  if(!tipo||!mes){alert('Seleccioná tarjeta y mes');return;}
+  
   const reader=new FileReader();
   reader.onload=async e=>{
     try{
@@ -1130,7 +1136,7 @@ async function procesarPDF(file){
         const content=await page.getTextContent();
         content.items.forEach(it=>{const s=it.str.trim();if(s)items.push(s);});
       }
-      extraerCuotasDelPDF(items,file.name);
+      extraerCuotasDelPDF(items,file.name,tipo,mes);
     }catch(err){
       alert('Error leyendo PDF: '+err.message);
     }
@@ -1138,12 +1144,17 @@ async function procesarPDF(file){
   reader.readAsArrayBuffer(file);
 }
 
+async function procesarPDF(file){
+  // Versión antigua - mantener por compatibilidad
+  await procesarPDFConTipo(file);
+}
+
 function esMonto(s){return /^\d{1,3}(\.\d{3})*,\d{2}$/.test(s);}
 function parseMonto(s){return parseFloat(s.replace(/\./g,'').replace(',','.'));}
 function esFecha(s){return /^\d{2}\.\d{2}\.\d{2}$/.test(s);}
 function esComprobante(s){return /^\d{5,7}[K*]?$/.test(s);}
 
-function extraerCuotasDelPDF(items,nombre){
+function extraerCuotasDelPDF(items,nombre,tipo,mes){
   // Paso 1: detectar marcadores "Tarjeta XXXX Total" que aparecen AL FINAL de cada sección
   const marcadores=[];
   for(let i=0;i<items.length;i++){
@@ -1238,38 +1249,73 @@ function extraerCuotasDelPDF(items,nombre){
   const tarjeta={
     id:Date.now(),
     nombre:nombre.replace('.pdf',''),
+    tipo:tipo,
     seccionesTarjeta:Object.values(porTarjeta),
     unPago:unPagoAgrupado,
     fechaCarga:new Date().toLocaleDateString('es-AR')
   };
-  tarjetas.push(tarjeta);
+  
+  // Guardar en tarjetasPorMes
+  if(!tarjetasPorMes[mes])tarjetasPorMes[mes]={};
+  const idTarjeta=`${tipo}-${tarjeta.id}`;
+  tarjetasPorMes[mes][idTarjeta]=tarjeta;
+  
   guardar();
   renderTarjetas();
-  alert(`✓ ${cuotas.length} cuotas y ${unPago.length} consumos en 1 pago cargados`);
+  alert(`✓ ${cuotas.length} cuotas y ${unPago.length} consumos en 1 pago cargados para ${mes}`);
 }
 
 
 function renderTarjetas(){
+  const M=currentMonthIdx, A=CURRENT_YEAR;
+  const mesKey=`${A}-${String(M+1).padStart(2,'0')}`;
+  
   let html=`<div class="card" style="margin-bottom:1rem">
-    <strong>Subir resumen de tarjeta (PDF)</strong>
-    <p style="font-size:12px;color:#999;margin:8px 0">Cargá el resumen mensual en PDF — detectamos cuotas por tarjeta y consumos en 1 pago.</p>
-    <input type="file" id="pdf-upload" accept=".pdf" onchange="procesarPDF(this.files[0])" style="display:none">
-    <input type="file" id="pdf-debug" accept=".pdf" onchange="debugPDF(this.files[0])" style="display:none">
+    <strong>Cargar tarjeta de crédito (PDF)</strong>
+    <p style="font-size:12px;color:#999;margin:8px 0">Seleccioná tarjeta, mes y cargá el PDF del resumen.</p>
+    
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">
+      <div>
+        <label style="font-size:11px;color:#999">Tipo de tarjeta:</label>
+        <select id="tipo-tarjeta" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px">
+          <option value="visa-galicia-mas">Visa Galicia Más</option>
+          <option value="visa-galicia">Visa Galicia</option>
+          <option value="master-galicia">Master Galicia</option>
+          <option value="visa-patagonia">Visa Patagonia</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:#999">Mes:</label>
+        <select id="mes-tarjeta" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px">`;
+    
+    // Generar opciones de meses
+    for(let m=0; m<12; m++){
+      const key = `\${A}-\${String(m+1).padStart(2,'0')}`;
+      const selected = key === mesKey ? 'selected' : '';
+      html += `<option value="\${key}" \${selected}>\${MONTHS[m]} \${A}</option>`;
+    }
+    
+    html+=`</select>
+      </div>
+    </div>
+    
     <div style="display:flex;gap:8px">
+      <input type="file" id="pdf-upload" accept=".pdf" onchange="procesarPDFConTipo(this.files[0])" style="display:none">
+      <input type="file" id="pdf-debug" accept=".pdf" onchange="debugPDF(this.files[0])" style="display:none">
       <button onclick="document.getElementById('pdf-upload').click()" style="flex:1">📁 Cargar PDF</button>
-      <button onclick="document.getElementById('pdf-debug').click()" style="background:#333;border-color:#444;color:#aaa;font-size:11px;padding:5px 10px">🔍 Ver texto crudo</button>
+      <button onclick="document.getElementById('pdf-debug').click()" style="background:#333;border-color:#444;color:#aaa;font-size:11px;padding:5px 10px">🔍 Debug</button>
     </div>
   </div>`;
 
-  if(tarjetas.length===0){
-    html+=`<div class="card"><p style="color:#666;font-size:13px">Sin tarjetas cargadas aún.</p></div>`;
+  // Mostrar tarjetas cargadas del mes actual
+  if(!tarjetasPorMes[mesKey] || Object.keys(tarjetasPorMes[mesKey]).length===0){
+    html+=`<div class="card"><p style="color:#666;font-size:13px">Sin tarjetas cargadas para este mes.</p></div>`;
   } else {
-    tarjetas.forEach(t=>{
+    Object.values(tarjetasPorMes[mesKey]).forEach(t=>{
       const todasCuotas=t.seccionesTarjeta?t.seccionesTarjeta.flatMap(s=>s.cuotas):(t.cuotas||[]);
       const unPago=t.unPago||[];
       const cuotasNuevas=todasCuotas.filter(c=>c.cuotaActual===1);
       const cuotasUltimas=todasCuotas.filter(c=>c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1);
-      const cuotasResto=todasCuotas.filter(c=>c.cuotaActual!==1&&c.cuotaActual!==c.cuotaTotal);
       const totalNuevas=cuotasNuevas.reduce((s,c)=>s+c.monto,0);
       const totalUltimas=cuotasUltimas.reduce((s,c)=>s+c.monto,0);
       const totalCuotas=todasCuotas.reduce((s,c)=>s+c.monto,0);
@@ -1278,95 +1324,107 @@ function renderTarjetas(){
 
       html+=`<div class="card" style="margin-top:1rem">
         <div class="card-header">
-          <span class="card-title">💳 ${t.nombre}</span>
+          <span class="card-title">💳 \${t.nombre} (\${t.tipo})</span>
           <div style="display:flex;gap:8px;align-items:center">
-            <span style="font-size:11px;color:#666">${t.fechaCarga||''}</span>
-            <button class="danger" onclick="eliminarTarjeta(${t.id})" style="padding:3px 8px">✕</button>
+            <span style="font-size:11px;color:#666">\${t.fechaCarga||''}</span>
+            <button class="danger" onclick="eliminarTarjetaMes('\${mesKey}','\${t.id}')" style="padding:3px 8px">✕</button>
           </div>
         </div>
 
         <div class="summary-grid" style="margin:12px 0">
-          <div class="metric"><div class="metric-label">Total mes</div><div class="metric-value neg">${fmt(totalGeneral)}</div></div>
-          <div class="metric"><div class="metric-label">Nuevas (${cuotasNuevas.length})</div><div class="metric-value">${fmt(totalNuevas)}</div></div>
-          <div class="metric"><div class="metric-label">1 pago</div><div class="metric-value neg">${fmt(totalUnPago)}</div></div>
-          <div class="metric"><div class="metric-label">Finalizan (${cuotasUltimas.length})</div><div class="metric-value pos">${fmt(totalUltimas)}</div></div>
+          <div class="metric"><div class="metric-label">Total mes</div><div class="metric-value neg">\${fmt(totalGeneral)}</div></div>
+          <div class="metric"><div class="metric-label">Nuevas (\${cuotasNuevas.length})</div><div class="metric-value">\${fmt(totalNuevas)}</div></div>
+          <div class="metric"><div class="metric-label">1 pago</div><div class="metric-value neg">\${fmt(totalUnPago)}</div></div>
+          <div class="metric"><div class="metric-label">Finalizan (\${cuotasUltimas.length})</div><div class="metric-value pos">\${fmt(totalUltimas)}</div></div>
         </div>`;
 
-      // ── Secciones por tarjeta ──
-      const secciones=t.seccionesTarjeta||[{numero:'???',titular:'',cuotas:t.cuotas||[]}];
-      secciones.forEach(sec=>{
-        if(!sec.cuotas||sec.cuotas.length===0)return;
+        const secciones=t.seccionesTarjeta||[{numero:'???',titular:'',cuotas:t.cuotas||[]}];
+        secciones.forEach(sec=>{
+          if(!sec.cuotas||sec.cuotas.length===0)return;
+          const ultimasSec=sec.cuotas.filter(c=>c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1);
+          const medioSec=sec.cuotas.filter(c=>c.cuotaActual!==1&&c.cuotaActual!==c.cuotaTotal);
+          const nuevasSec=sec.cuotas.filter(c=>c.cuotaActual===1);
+          const ordenadas=[...ultimasSec,...medioSec,...nuevasSec];
+          const totalSec=sec.cuotas.reduce((s,c)=>s+c.monto,0);
 
-        const ultimasSec=sec.cuotas.filter(c=>c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1);
-        const medioSec=sec.cuotas.filter(c=>c.cuotaActual!==1&&c.cuotaActual!==c.cuotaTotal);
-        const nuevasSec=sec.cuotas.filter(c=>c.cuotaActual===1);
-        const ordenadas=[...ultimasSec,...medioSec,...nuevasSec];
-        const totalSec=sec.cuotas.reduce((s,c)=>s+c.monto,0);
+          html+=`<div class="section-divider">Tarjeta •••• \${sec.numero} — \${sec.titular}</div>
+          <div class="card" style="padding:8px;margin-bottom:8px">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead><tr>
+                <th style="text-align:left;padding:6px 8px;color:#999">Descripción</th>
+                <th style="text-align:center;padding:6px 8px;color:#999">Cuota</th>
+                <th style="text-align:right;padding:6px 8px;color:#999">Monto</th>
+              </tr></thead><tbody>`;
 
-        html+=`<div class="section-divider">Tarjeta •••• ${sec.numero} — ${sec.titular}</div>
-        <div class="card" style="padding:8px;margin-bottom:8px">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead><tr>
-              <th style="text-align:left;padding:6px 8px;color:#999">Descripción</th>
-              <th style="text-align:center;padding:6px 8px;color:#999">Cuota</th>
-              <th style="text-align:right;padding:6px 8px;color:#999">Monto</th>
-            </tr></thead><tbody>`;
+            ordenadas.forEach(c=>{
+              const esUltima=c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1;
+              const esNueva=c.cuotaActual===1;
+              const colorFila=esUltima?'background:#1a2a1a':esNueva?'background:#1a1a2a':'';
+              html+=`<tr style="border-top:1px solid #333;\${colorFila}">
+                <td style="padding:6px 8px">\${c.descripcion}
+                  \${esUltima?'<span class="chip last">última</span>':''}
+                  \${esNueva?'<span class="chip">nueva</span>':''}
+                </td>
+                <td style="text-align:center;padding:6px 8px;font-size:11px;color:#999">\${c.cuotaActual}/\${c.cuotaTotal}</td>
+                <td style="text-align:right;padding:6px 8px;color:\${esUltima?'#6f8':esNueva?'#f88':'#fff'}">\${fmt(c.monto)}</td>
+              </tr>`;
+            });
 
-        ordenadas.forEach(c=>{
-          const esUltima=c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1;
-          const esNueva=c.cuotaActual===1;
-          const colorFila=esUltima?'background:#1a2a1a':esNueva?'background:#1a1a2a':'';
-          html+=`<tr style="border-top:1px solid #333;${colorFila}">
-            <td style="padding:6px 8px">${c.descripcion}
-              ${esUltima?'<span class="chip last">última</span>':''}
-              ${esNueva?'<span class="chip">nueva</span>':''}
-            </td>
-            <td style="text-align:center;padding:6px 8px;font-size:11px;color:#999">${c.cuotaActual}/${c.cuotaTotal}</td>
-            <td style="text-align:right;padding:6px 8px;color:${esUltima?'#6f8':esNueva?'#f88':'#fff'}">${fmt(c.monto)}</td>
-          </tr>`;
+            html+=`<tr style="border-top:1px solid #444;background:#1a1a1a">
+              <td colspan="2" style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Subtotal tarjeta \${sec.numero}:</td>
+              <td style="text-align:right;padding:6px 8px;font-weight:500">\${fmt(totalSec)}</td>
+            </tr></tbody></table></div>`;
         });
 
-        html+=`<tr style="border-top:1px solid #444;background:#1a1a1a">
-          <td colspan="2" style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Subtotal tarjeta ${sec.numero}:</td>
-          <td style="text-align:right;padding:6px 8px;font-weight:500">${fmt(totalSec)}</td>
-        </tr></tbody></table></div>`;
-      });
+        if(unPago.length>0){
+          const totalUp=unPago.reduce((s,c)=>s+c.monto,0);
+          html+=`<div class="section-divider">Consumos en 1 pago</div>
+          <div class="card" style="padding:8px;margin-bottom:8px">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead><tr>
+                <th style="text-align:left;padding:6px 8px;color:#999">Descripción</th>
+                <th style="text-align:right;padding:6px 8px;color:#999">Monto</th>
+              </tr></thead><tbody>`;
+            unPago.forEach(c=>{
+              html+=`<tr style="border-top:1px solid #333">
+                <td style="padding:6px 8px">\${c.descripcion}</td>
+                <td style="text-align:right;padding:6px 8px;color:#f88">\${fmt(c.monto)}</td>
+              </tr>`;
+            });
+            html+=`<tr style="border-top:1px solid #444;background:#1a1a1a">
+              <td style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Total 1 pago:</td>
+              <td style="text-align:right;padding:6px 8px;font-weight:500;color:#f88">\${fmt(totalUp)}</td>
+            </tr></tbody></table></div>`;
+        }
 
-      // ── Consumos en 1 pago ──
-      if(unPago.length>0){
-        const totalUp=unPago.reduce((s,c)=>s+c.monto,0);
-        html+=`<div class="section-divider">Consumos en 1 pago</div>
-        <div class="card" style="padding:8px;margin-bottom:8px">
-          <table style="width:100%;border-collapse:collapse;font-size:12px">
-            <thead><tr>
-              <th style="text-align:left;padding:6px 8px;color:#999">Descripción</th>
-              <th style="text-align:right;padding:6px 8px;color:#999">Monto</th>
-            </tr></thead><tbody>`;
-        unPago.forEach(c=>{
-          html+=`<tr style="border-top:1px solid #333">
-            <td style="padding:6px 8px">${c.descripcion}</td>
-            <td style="text-align:right;padding:6px 8px;color:#f88">${fmt(c.monto)}</td>
-          </tr>`;
-        });
-        html+=`<tr style="border-top:1px solid #444;background:#1a1a1a">
-          <td style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Total 1 pago:</td>
-          <td style="text-align:right;padding:6px 8px;font-weight:500;color:#f88">${fmt(totalUp)}</td>
-        </tr></tbody></table></div>`;
-      }
-
-      html+=`</div>`; // cierre card tarjeta
+        html+=`</div>`;
     });
   }
 
   document.getElementById('view-tarjetas').innerHTML=html;
 }
 
-function eliminarTarjeta(id){
-  const t=tarjetas.find(x=>x.id===id);
-  if(!confirm(`¿Eliminar tarjeta ${t?t.nombre:''}?`))return;
-  tarjetas=tarjetas.filter(x=>x.id!==id);
+function eliminarTarjetaMes(mes,id){
+  if(!tarjetasPorMes[mes])return;
+  const keys=Object.keys(tarjetasPorMes[mes]);
+  const key=keys.find(k=>k.includes(id));
+  if(!key||!confirm('¿Eliminar esta tarjeta?'))return;
+  delete tarjetasPorMes[mes][key];
+  if(Object.keys(tarjetasPorMes[mes]).length===0)delete tarjetasPorMes[mes];
   guardar();
   renderTarjetas();
+}
+
+function eliminarTarjeta(id){
+  // Compatibilidad - buscar en todos los meses
+  for(const mes in tarjetasPorMes){
+    for(const key in tarjetasPorMes[mes]){
+      if(key.includes(id)){
+        eliminarTarjetaMes(mes,id);
+        return;
+      }
+    }
+  }
 }
 
 // ── Estadísticas ─────────────────────────────────────────────────────
@@ -1501,7 +1559,7 @@ function aplicarEstado(estado){
   categorias  = estado.categorias || DEFAULT_CATS;
   pagados     = estado.pagados || {};
   saldados    = estado.saldados || {};
-  tarjetas    = estado.tarjetas || [];
+  tarjetasPorMes = estado.tarjetasPorMes || {};
   const sf    = estado.fijos;
   if(sf&&sf.length>0){
     fijos = migrateFijos(sf);
