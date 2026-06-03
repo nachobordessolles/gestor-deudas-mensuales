@@ -249,7 +249,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
-pdfdist.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 </script>
 <script>
 // ── Auth ─────────────────────────────────────────────────────────────
@@ -1093,7 +1093,7 @@ async function procesarPDF(file){
   reader.onload=async e=>{
     try{
       const pdfData=new Uint8Array(e.target.result);
-      const pdf=await pdfdist.getDocument({data:pdfData}).promise;
+      const pdf=await pdfjsLib.getDocument({data:pdfData}).promise;
       let texto='';
       for(let i=1;i<=pdf.numPages;i++){
         const page=await pdf.getPage(i);
@@ -1157,10 +1157,13 @@ function renderTarjetas(){
     const anoActual=hoy.getFullYear();
 
     tarjetas.forEach(t=>{
-      // Cuotas que vencen este mes (asumimos que vencen el día de cierre)
-      const cuotasEsteMe s=t.cuotas.filter(c=>c.cuotaActual===1); // simplificado: solo cuota 1 es "nueva"
-      const totalEsteM es=cuotasEsteMes.reduce((s,c)=>s+c.monto,0);
+      // Cuotas que vencen este mes (cuota 1 = nueva)
+      const cuotasNuevas=t.cuotas.filter(c=>c.cuotaActual===1);
+      const totalNuevas=cuotasNuevas.reduce((s,c)=>s+c.monto,0);
       const cuotasTotal=t.cuotas.reduce((s,c)=>s+c.monto,0);
+      // Cuotas que terminan este mes (última cuota)
+      const cuotasUltimas=t.cuotas.filter(c=>c.cuotaActual===c.cuotaTotal);
+      const totalUltimas=cuotasUltimas.reduce((s,c)=>s+c.monto,0);
       
       html+=`<div class="card" style="margin-top:1rem">
         <div class="card-header">
@@ -1169,9 +1172,10 @@ function renderTarjetas(){
         </div>
         <p style="font-size:12px;color:#999;margin:6px 0">${t.cuotas.length} cuotas | Total: ${fmt(cuotasTotal)}</p>
         
-        <div style="background:#1a1a1a;border-radius:6px;padding:10px;margin:10px 0">
-          <div style="font-size:11px;color:#666">Este mes (cuotas nuevas)</div>
-          <div style="font-size:16px;font-weight:500;color:#6f8">${fmt(totalEsteMes)}</div>
+        <div class="summary-grid" style="margin:10px 0">
+          <div class="metric"><div class="metric-label">Cuotas nuevas</div><div class="metric-value pos">${cuotasNuevas.length}</div></div>
+          <div class="metric"><div class="metric-label">Monto nuevas</div><div class="metric-value">${fmt(totalNuevas)}</div></div>
+          <div class="metric"><div class="metric-label">Terminan</div><div class="metric-value neg">${cuotasUltimas.length}</div></div>
         </div>
 
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin:10px 0">
@@ -1183,8 +1187,10 @@ function renderTarjetas(){
           <tbody>`;
       
       t.cuotas.forEach(c=>{
+        const esUltima=c.cuotaActual===c.cuotaTotal;
+        const esNueva=c.cuotaActual===1;
         html+=`<tr style="border-bottom:1px solid #333">
-          <td style="padding:6px 8px">${c.descripcion}</td>
+          <td style="padding:6px 8px">${c.descripcion}${esUltima?'<span class="chip last">última</span>':''}${esNueva?'<span class="chip">nueva</span>':''}</td>
           <td style="text-align:center;padding:6px 8px;font-size:11px">${c.cuotaActual}/${c.cuotaTotal}</td>
           <td style="text-align:right;padding:6px 8px">${fmt(c.monto)}</td>
         </tr>`;
@@ -1192,11 +1198,10 @@ function renderTarjetas(){
       
       html+=`</tbody></table>
         <div style="background:#2a1a1a;border-radius:6px;padding:10px;margin-top:10px">
-          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <div style="display:flex;justify-content:space-between">
             <span style="font-size:12px;color:#999">Total cargado:</span>
             <span style="font-size:14px;font-weight:500;color:#f88">${fmt(cuotasTotal)}</span>
           </div>
-          <button class="danger" onclick="eliminarTarjeta(${t.id})" style="width:100%;padding:6px">Eliminar tarjeta</button>
         </div>
       </div>`;
     });
