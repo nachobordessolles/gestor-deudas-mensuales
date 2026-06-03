@@ -296,17 +296,19 @@ function iniciarApp(){
       <span id="save-badge" class="save-badge"></span>
     </div>
     <div class="tabs" id="tabs">
-      <button class="tab active" onclick="setView(\'resumen\')">📅 Mes</button>
-      <button class="tab" onclick="setView(\'detalle\')">👥 Personas</button>
-      <button class="tab" onclick="setView(\'lista\')">📋 Cuotas</button>
-      <button class="tab" onclick="setView(\'fijos\')">🏠 Fijos</button>
-      <button class="tab" onclick="setView(\'categorias\')">🏷 Categorías</button>
-      ${modoLectura?'':'<button class="tab" onclick="setView(\'agregar\')">➕ Agregar</button>'}
+      <button class="tab active" id="tab-resumen" onclick="setView(\'resumen\')">📅 Mes</button>
+      <button class="tab" id="tab-detalle" onclick="setView(\'detalle\')">👥 Personas</button>
+      <button class="tab" id="tab-lista" onclick="setView(\'lista\')">📋 Cuotas</button>
+      <button class="tab" id="tab-fijos" onclick="setView(\'fijos\')">🏠 Fijos <span id="badge-fijos" style="display:none;background:#f88;color:#111;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:2px;"></span></button>
+      <button class="tab" id="tab-stats" onclick="setView(\'stats\')">📊 Estadísticas</button>
+      <button class="tab" id="tab-categorias" onclick="setView(\'categorias\')">🏷 Categorías</button>
+      ${modoLectura?'':'<button class="tab" id="tab-agregar" onclick="setView(\'agregar\')">➕ Agregar</button>'}
     </div>
     <div id="view-resumen"></div>
     <div id="view-detalle" class="hide"></div>
     <div id="view-lista" class="hide"></div>
     <div id="view-fijos" class="hide"></div>
+    <div id="view-stats" class="hide"></div>
     <div id="view-categorias" class="hide"></div>
     ${modoLectura?'':'<div id="view-agregar" class="hide"></div>'}
   </div>`;
@@ -315,7 +317,7 @@ function iniciarApp(){
 // ────────────────────────────────────────────────────────────────────
 
 const MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const FREQ_LABEL={mensual:'Mensual',bimestral:'Bimestral',trimestral:'Trimestral',semestral:'Semestral',anual:'Anual'};
+const FREQ_LABEL={mensual:'Mensual',bimestral:'Bimestral',trimestral:'Trimestral',semestral:'Semestral',anual:'Anual',semanal:'Semanal'};
 const FREQ_MONTHS={mensual:1,bimestral:2,trimestral:3,semestral:6,anual:12};
 const CAT_COLORS=['#378ADD','#1D9E75','#D85A30','#7F77DD','#D4537E','#BA7517','#639922','#E24B4A','#888780'];
 
@@ -394,14 +396,48 @@ function getCuotaEnMes(d,m,a){
 }
 function getPersonas(){return[...new Set(deudas.map(d=>d.persona))];}
 function getMonto(d){return d.negativo?-d.monto:d.monto;}
-function fijoActivoEnMes(f,m,a){const mesActual=(a)*12+m;const mesBase=((f.anoBase||2026))*12+f.mesBase;const o=mesActual-mesBase;return o>=0&&o%FREQ_MONTHS[f.frecuencia]===0;}
+function fijoActivoEnMes(f,m,a){
+  if(f.frecuencia==='semanal') return true; // siempre activo, se maneja por semanas
+  const mesActual=(a)*12+m;const mesBase=((f.anoBase||2026))*12+f.mesBase;const o=mesActual-mesBase;return o>=0&&o%FREQ_MONTHS[f.frecuencia]===0;
+}
+// Devuelve array de fechas (Date) de cada ocurrencia semanal en el mes m/a
+// diaSemana: 0=dom,1=lun,...,6=sab  (f.diaSemana)
+function getSemanasDelMes(f,m,a){
+  const dia=f.diaSemana||1; // default lunes
+  const fechas=[];
+  const d=new Date(a,m,1);
+  // avanzar hasta el primer día de la semana pedido
+  while(d.getDay()!==dia) d.setDate(d.getDate()+1);
+  while(d.getMonth()===m){
+    fechas.push(new Date(d));
+    d.setDate(d.getDate()+7);
+  }
+  return fechas;
+}
+function semanaKey(id,m,a,idx){return`sw-${id}-${m}-${a}-${idx}`;}
+function isSemPagada(id,m,a,idx){return!!(pagados[semanaKey(id,m,a,idx)]);}
+function toggleSemana(id,m,a,idx){const k=semanaKey(id,m,a,idx);if(pagados[k])delete pagados[k];else pagados[k]=true;guardar();renderFijos();renderResumen();}
+
 function pagoKey(id,m,a){return`${id}-${m}-${a}`;}
 function isPagado(id,m,a){return!!(pagados[pagoKey(id,m,a)]);}
 function togglePago(id,m,a){const k=pagoKey(id,m,a);if(pagados[k])delete pagados[k];else pagados[k]=true;guardar();renderFijos();renderResumen();}
 function getCatById(id){return categorias.find(c=>c.id===id)||{nombre:'General',color:'#888780'};}
+
+function getTotalFijoMes(f,m,a){
+  if(f.frecuencia==='semanal') return getSemanasDelMes(f,m,a).length * f.monto;
+  return fijoActivoEnMes(f,m,a)?f.monto:0;
+}
 function getTotalDeudaMes(m,a){return deudas.reduce((s,d)=>{const c=getCuotaEnMes(d,m,a);return c!==null?s+getMonto(d):s;},0);}
-function getTotalFijosMes(m,a){return fijos.reduce((s,f)=>fijoActivoEnMes(f,m,a)?s+f.monto:s,0);}
-function getTotalFijosPend(m,a){return fijos.filter(f=>fijoActivoEnMes(f,m,a)&&!isPagado(f.id,m,a)).reduce((s,f)=>s+f.monto,0);}
+function getTotalFijosMes(m,a){return fijos.reduce((s,f)=>s+getTotalFijoMes(f,m,a),0);}
+function getTotalFijosPend(m,a){
+  return fijos.reduce((s,f)=>{
+    if(f.frecuencia==='semanal'){
+      const sems=getSemanasDelMes(f,m,a);
+      return s+sems.filter((_,i)=>!isSemPagada(f.id,m,a,i)).length*f.monto;
+    }
+    return fijoActivoEnMes(f,m,a)&&!isPagado(f.id,m,a)?s+f.monto:s;
+  },0);
+}
 function catSelectOptions(sid){return categorias.map(c=>`<option value="${c.id}"${c.id===sid?' selected':''}>${c.nombre}</option>`).join('');}
 function saldoKey(p,m,a){return`${p}-${m}-${a}`;}
 function isSaldado(p,m,a){return!!saldados[saldoKey(p,m,a)];}
@@ -424,8 +460,26 @@ function renderResumen(){
   const M=currentMonthIdx,A=CURRENT_YEAR;
   const personas=getPersonas();
   const td=getTotalDeudaMes(M,A),tf=getTotalFijosMes(M,A),fp=getTotalFijosPend(M,A),tg=td+tf;
-  const fijosAct=fijos.filter(f=>fijoActivoEnMes(f,M,A));
-  let html=`<div class="month-nav">
+  const fijosAct=fijos.filter(f=>f.frecuencia!=='semanal'&&fijoActivoEnMes(f,M,A));
+
+  // Alertas vencimiento
+  const alertas=getAlertas();
+  let alertHtml='';
+  if(alertas.length>0){
+    alertHtml=`<div style="background:#3a2a1a;border:1px solid #7a5a1a;border-radius:8px;padding:10px 14px;margin-bottom:1rem;">
+      <div style="font-size:12px;font-weight:500;color:#fa0;margin-bottom:6px;">🔔 Vencimientos próximos</div>`;
+    alertas.forEach(a=>{
+      const color=a.diff===0?'#f88':a.diff===1?'#fa0':'#ff6';
+      const label=a.diff===0?'HOY':a.diff===1?'mañana':`en ${a.diff} días`;
+      alertHtml+=`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
+        <span style="color:#fff">${a.nombre}</span>
+        <span style="color:${color};font-weight:500">${label}</span>
+      </div>`;
+    });
+    alertHtml+=`</div>`;
+  }
+
+  let html=alertHtml+`<div class="month-nav">
     <button onclick="changeMonth(-1)">←</button>
     <span class="month-label">${MONTHS[M]} ${A}</span>
     <button onclick="changeMonth(1)">→</button>
@@ -489,6 +543,7 @@ function renderResumen(){
     Cuotas: ${fmt(td)} | Fijos: ${fmt(tf)} | <strong>Total: ${fmt(tg)}</strong>
   </div>`;
   document.getElementById('view-resumen').innerHTML=html;
+  actualizarBadgeFijos();
 }
 
 function renderDetalle(){
@@ -593,6 +648,7 @@ function guardarEdit(id){
 function renderFijos(){
   const M=currentMonthIdx,A=CURRENT_YEAR;
   const totalMes=getTotalFijosMes(M,A),pendiente=getTotalFijosPend(M,A),pagado=totalMes-pendiente;
+  const DIAS=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
   let html=`<div class="month-nav">
     <button onclick="changeFijoMonth(-1)">←</button>
     <span class="month-label">${MONTHS[M]} ${A}</span>
@@ -603,31 +659,71 @@ function renderFijos(){
     <div class="metric"><div class="metric-label">Pagado</div><div class="metric-value pos">${fmt(pagado)}</div></div>
     <div class="metric"><div class="metric-label">Pendiente</div><div class="metric-value neg">${fmt(pendiente)}</div></div>
   </div>`;
-  if(fijos.length){
+
+  // Fijos normales
+  const fijosNorm=fijos.filter(f=>f.frecuencia!=='semanal'&&fijoActivoEnMes(f,M,A));
+  if(fijosNorm.length){
     html+=`<div class="card"><table><thead><tr><th>✓</th><th>Nombre</th><th style="text-align:center">Frecuencia</th><th style="text-align:center">Vence</th><th style="text-align:right">Monto</th></tr></thead><tbody>`;
-    fijos.forEach(f=>{
-      const paid=isPagado(f.id,M,A),activo=fijoActivoEnMes(f,M,A);
-      html+=`<tr class="${paid&&activo?'paid':''}">
-        <td>${activo?`<input type="checkbox" ${paid?'checked':''} onchange="togglePago(${f.id},${M},${A})">`:'-'}</td>
-        <td>${f.nombre}</td>
+    fijosNorm.forEach(f=>{
+      const paid=isPagado(f.id,M,A),cat=getCatById(f.categoriaId);
+      html+=`<tr class="${paid?'paid':''}">
+        <td><input type="checkbox" ${paid?'checked':''} onchange="togglePago(${f.id},${M},${A})"></td>
+        <td><span class="cat-dot" style="background:${cat.color}"></span>${f.nombre}</td>
         <td style="text-align:center;font-size:11px">${FREQ_LABEL[f.frecuencia]}</td>
         <td style="text-align:center">${f.vencimiento}</td>
-        <td style="text-align:right;color:${paid&&activo?'#666':'#f88'}">${paid&&activo?'<s>':''}${fmt(f.monto)}${paid&&activo?'</s>':''}</td>
+        <td style="text-align:right;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(f.monto)}${paid?'</s>':''}</td>
       </tr>`;
     });
     html+=`</tbody></table></div>`;
   }
+
+  // Fijos semanales
+  const fijosSem=fijos.filter(f=>f.frecuencia==='semanal');
+  if(fijosSem.length){
+    html+=`<div class="section-divider">Gastos semanales</div>`;
+    fijosSem.forEach(f=>{
+      const cat=getCatById(f.categoriaId);
+      const sems=getSemanasDelMes(f,M,A);
+      const pagadas=sems.filter((_,i)=>isSemPagada(f.id,M,A,i)).length;
+      const totalF=sems.length*f.monto;
+      const pendF=(sems.length-pagadas)*f.monto;
+      html+=`<div class="card">
+        <div class="card-header">
+          <div><span class="cat-dot" style="background:${cat.color}"></span><strong>${f.nombre}</strong>
+            <span style="font-size:11px;color:#999;margin-left:6px">${fmt(f.monto)}/semana · ${sems.length} semanas</span>
+          </div>
+          <span class="badge badge-neg">${fmt(pendF)} pend.</span>
+        </div>
+        <table><thead><tr><th>✓</th><th>Semana</th><th style="text-align:right">Fecha</th><th style="text-align:right">Monto</th></tr></thead><tbody>`;
+      sems.forEach((fecha,i)=>{
+        const paid=isSemPagada(f.id,M,A,i);
+        const fechaStr=fecha.getDate()+'/'+(fecha.getMonth()+1);
+        html+=`<tr class="${paid?'paid':''}">
+          <td><input type="checkbox" ${paid?'checked':''} onchange="toggleSemana(${f.id},${M},${A},${i})"></td>
+          <td>Semana ${i+1}</td>
+          <td style="text-align:right;font-size:11px;color:#999">${DIAS[fecha.getDay()]} ${fechaStr}</td>
+          <td style="text-align:right;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(f.monto)}${paid?'</s>':''}</td>
+        </tr>`;
+      });
+      html+=`<tr class="total-row"><td colspan="2"></td><td style="text-align:right">Total:</td><td style="text-align:right">${fmt(totalF)}</td></tr>
+      </tbody></table></div>`;
+    });
+  }
+
+  // Formulario agregar
   html+=`<div class="card" style="margin-top:1rem"><strong>Agregar gasto fijo</strong>
     <div class="form-grid" style="margin-top:10px">
       <div class="form-group"><label>Nombre</label><input id="ff-nombre" placeholder="Luz"></div>
       <div class="form-group"><label>Categoría</label><select id="ff-cat">${catSelectOptions(categorias[0]?.id)}</select></div>
       <div class="form-group"><label>Monto</label><input id="ff-monto" type="number" placeholder="15000"></div>
-      <div class="form-group"><label>Frecuencia</label><select id="ff-freq">${Object.entries(FREQ_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
-      <div class="form-group"><label>Vencimiento</label><input id="ff-venc" type="number" min="1" max="31" value="10"></div>
+      <div class="form-group"><label>Frecuencia</label><select id="ff-freq" onchange="toggleDiaSemana(this.value)">${Object.entries(FREQ_LABEL).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+      <div class="form-group" id="ff-dia-group" style="display:none"><label>Día semana</label><select id="ff-dia">${DIAS.map((d,i)=>`<option value="${i}"${i===1?' selected':''}>${d}</option>`).join('')}</select></div>
+      <div class="form-group" id="ff-venc-group"><label>Vencimiento</label><input id="ff-venc" type="number" min="1" max="31" value="10"></div>
     </div>
     <button onclick="agregarFijo()" style="margin-top:10px">+ Agregar</button>
   </div>`;
   document.getElementById('view-fijos').innerHTML=html;
+  actualizarBadgeFijos();
 }
 
 function renderCategorias(){
@@ -688,10 +784,22 @@ function agregarCategoria(){
 }
 function eliminarCategoria(id){if(fijos.some(f=>f.categoriaId===id))return;categorias=categorias.filter(x=>x.id!==id);guardar();renderCategorias();}
 
+function toggleDiaSemana(val){
+  document.getElementById('ff-dia-group').style.display=val==='semanal'?'':'none';
+  document.getElementById('ff-venc-group').style.display=val==='semanal'?'none':'';
+}
 function agregarFijo(){
-  const nombre=document.getElementById('ff-nombre').value.trim(),monto=parseFloat(document.getElementById('ff-monto').value);
+  const nombre=document.getElementById('ff-nombre').value.trim();
+  const monto=parseFloat(document.getElementById('ff-monto').value);
+  const freq=document.getElementById('ff-freq').value;
   if(!nombre||isNaN(monto)){alert('Completá campos');return;}
-  fijos.push({id:Date.now(),nombre,monto,frecuencia:document.getElementById('ff-freq').value,vencimiento:parseInt(document.getElementById('ff-venc').value),mesBase:5,anoBase:CURRENT_YEAR,categoriaId:parseInt(document.getElementById('ff-cat').value)});
+  const obj={id:Date.now(),nombre,monto,frecuencia:freq,mesBase:currentMonthIdx,anoBase:CURRENT_YEAR,categoriaId:parseInt(document.getElementById('ff-cat').value)};
+  if(freq==='semanal'){
+    obj.diaSemana=parseInt(document.getElementById('ff-dia').value);
+  } else {
+    obj.vencimiento=parseInt(document.getElementById('ff-venc').value);
+  }
+  fijos.push(obj);
   guardar();renderFijos();
 }
 function eliminarFijo(id){fijos=fijos.filter(x=>x.id!==id);guardar();renderFijos();}
@@ -734,8 +842,136 @@ function setView(v){
   else if(v==='detalle')renderDetalle();
   else if(v==='lista')renderLista();
   else if(v==='fijos')renderFijos();
+  else if(v==='stats')renderStats();
   else if(v==='categorias')renderCategorias();
   else if(v==='agregar')renderAgregar();
+}
+
+// ── Badge fijos pendientes ───────────────────────────────────────────
+function actualizarBadgeFijos(){
+  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const pend=getTotalFijosPend(M,A);
+  const b=document.getElementById('badge-fijos');
+  if(!b)return;
+  if(pend>0){b.textContent='!';b.style.display='inline';}
+  else{b.style.display='none';}
+}
+
+// ── Alertas de vencimiento (próximos 3 días) ─────────────────────────
+function getAlertas(){
+  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const hoy=new Date();hoy.setHours(0,0,0,0);
+  const alertas=[];
+  fijos.forEach(f=>{
+    if(f.frecuencia==='semanal'){
+      const sems=getSemanasDelMes(f,M,A);
+      sems.forEach((fecha,i)=>{
+        if(isSemPagada(f.id,M,A,i))return;
+        const diff=Math.ceil((fecha-hoy)/(1000*60*60*24));
+        if(diff>=0&&diff<=3) alertas.push({nombre:f.nombre,fecha,diff,tipo:'semanal'});
+      });
+    } else if(fijoActivoEnMes(f,M,A)&&!isPagado(f.id,M,A)){
+      const fecha=new Date(A,M,f.vencimiento);
+      const diff=Math.ceil((fecha-hoy)/(1000*60*60*24));
+      if(diff>=0&&diff<=3) alertas.push({nombre:f.nombre,fecha,diff,tipo:'fijo'});
+    }
+  });
+  return alertas.sort((a,b)=>a.diff-b.diff);
+}
+
+// ── Estadísticas ─────────────────────────────────────────────────────
+function renderStats(){
+  const A=CURRENT_YEAR;
+  // Totales por mes
+  const meses=Array.from({length:12},(_,i)=>i);
+  const totDeuda=meses.map(m=>getTotalDeudaMes(m,A));
+  const totFijos=meses.map(m=>getTotalFijosMes(m,A));
+  const totales=meses.map(m=>totDeuda[m]+totFijos[m]);
+  const maxVal=Math.max(...totales,1);
+
+  // Personas y sus totales restantes
+  const personas=getPersonas();
+  const restoPersonas=personas.map(p=>{
+    const total=deudas.filter(d=>d.persona===p&&d.cuotaTotal!==999)
+      .reduce((s,d)=>{const r=d.cuotaTotal-d.cuotaInicio+1;return s+(d.negativo?-1:1)*d.monto*r;},0);
+    return{p,total};
+  }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
+  const maxResto=Math.max(...restoPersonas.map(x=>x.total),1);
+
+  // Mes con más gasto
+  const mesPico=totales.indexOf(Math.max(...totales));
+
+  let html=`<div class="card">
+    <div class="card-header"><span class="card-title">📊 Totales por mes — ${A}</span></div>
+    <div style="overflow-x:auto;">
+      <table style="min-width:500px"><thead><tr>
+        <th>Mes</th><th style="text-align:right">Cuotas</th><th style="text-align:right">Fijos</th><th style="text-align:right">Total</th><th style="width:35%">Barra</th>
+      </tr></thead><tbody>`;
+  meses.forEach(m=>{
+    const t=totales[m],pct=Math.round(t/maxVal*100);
+    const esCurrent=m===currentMonthIdx;
+    html+=`<tr style="${esCurrent?'background:#1a2a1a':''}">
+      <td style="font-size:12px;${esCurrent?'color:#6f8;font-weight:500':''}">${MONTHS[m].substring(0,3)}</td>
+      <td style="text-align:right;font-size:12px">${fmt(totDeuda[m])}</td>
+      <td style="text-align:right;font-size:12px;color:#f88">${fmt(totFijos[m])}</td>
+      <td style="text-align:right;font-size:12px;font-weight:500">${fmt(t)}</td>
+      <td><div style="background:#333;border-radius:3px;height:10px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${esCurrent?'#6f8':'#378ADD'};border-radius:3px;"></div>
+      </div></td>
+    </tr>`;
+  });
+  html+=`</tbody></table></div></div>`;
+
+  // Deuda restante por persona
+  if(restoPersonas.length){
+    html+=`<div class="card" style="margin-top:1rem">
+      <div class="card-header"><span class="card-title">👥 Deuda total restante por persona</span></div>`;
+    restoPersonas.forEach(({p,total})=>{
+      const pct=Math.round(total/maxResto*100);
+      // Cuántos meses faltan aprox
+      const mesesFaltan=deudas.filter(d=>d.persona===p&&d.cuotaTotal!==999)
+        .reduce((max,d)=>Math.max(max,d.cuotaTotal-d.cuotaInicio),0);
+      html+=`<div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:13px">${p}</span>
+          <span style="font-size:13px;font-weight:500">${fmt(total)}</span>
+        </div>
+        <div style="background:#333;border-radius:4px;height:12px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;background:#378ADD;border-radius:4px;"></div>
+        </div>
+        <div style="font-size:11px;color:#666;margin-top:3px">~${mesesFaltan} cuotas restantes</div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+
+  // Alertas vencimiento
+  const alertas=getAlertas();
+  html+=`<div class="card" style="margin-top:1rem">
+    <div class="card-header"><span class="card-title">🔔 Vencimientos próximos</span></div>`;
+  if(alertas.length===0){
+    html+=`<p style="font-size:13px;color:#666;">Sin vencimientos en los próximos 3 días ✓</p>`;
+  } else {
+    alertas.forEach(a=>{
+      const color=a.diff===0?'#f88':a.diff===1?'#fa0':'#6f8';
+      const label=a.diff===0?'HOY':a.diff===1?'MAÑANA':`en ${a.diff} días`;
+      html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #333">
+        <span style="font-size:13px">${a.nombre}</span>
+        <span style="font-size:12px;font-weight:500;color:${color};">${label}</span>
+      </div>`;
+    });
+  }
+  html+=`</div>`;
+
+  // Resumen general
+  const totalAcum=totales.reduce((s,t)=>s+t,0);
+  html+=`<div class="grand-total" style="margin-top:1rem">
+    <strong>Resumen ${A}</strong><br>
+    Total anual estimado: <strong>${fmt(totalAcum)}</strong> |
+    Mes pico: <strong>${MONTHS[mesPico]}</strong> (${fmt(totales[mesPico])})
+  </div>`;
+
+  document.getElementById('view-stats').innerHTML=html;
 }
 
 function aplicarEstado(estado){
@@ -775,7 +1011,7 @@ async function init(){
   renderResumen();
 }
 
-mostrarLogin();
+modoLectura=false; iniciarApp();
 </script>
 </body>
 </html>
