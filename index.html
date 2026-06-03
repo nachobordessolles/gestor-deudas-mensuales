@@ -249,7 +249,9 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+if(typeof pdfjsLib !== 'undefined'){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
 </script>
 <script>
 // ── Auth ─────────────────────────────────────────────────────────────
@@ -1120,14 +1122,23 @@ async function debugPDF(file){
 }
 
 async function procesarPDFConTipo(file){
-  const tipo=document.getElementById('tipo-tarjeta').value;
-  const mes=document.getElementById('mes-tarjeta').value;
+  const tipoEl=document.getElementById('tipo-tarjeta');
+  const mesEl=document.getElementById('mes-tarjeta');
+  if(!tipoEl||!mesEl){alert('Error: no se encontraron los selectores. Recargá la página.');return;}
+  const tipo=tipoEl.value;
+  const mes=mesEl.value;
   
   if(!tipo||!mes){alert('Seleccioná tarjeta y mes');return;}
+  if(!file){alert('No se seleccionó ningún archivo');return;}
   
   const reader=new FileReader();
+  reader.onerror=()=>alert('Error leyendo el archivo');
   reader.onload=async e=>{
     try{
+      if(typeof pdfjsLib==='undefined'){
+        alert('La librería de PDF no se cargó. Verificá tu conexión a internet y recargá la página.');
+        return;
+      }
       const pdfData=new Uint8Array(e.target.result);
       const pdf=await pdfjsLib.getDocument({data:pdfData}).promise;
       const items=[];
@@ -1136,9 +1147,16 @@ async function procesarPDFConTipo(file){
         const content=await page.getTextContent();
         content.items.forEach(it=>{const s=it.str.trim();if(s)items.push(s);});
       }
-      extraerCuotasDelPDF(items,file.name,tipo,mes);
+      if(items.length===0){alert('El PDF no contiene texto legible');return;}
+      
+      if(tipo==='master-galicia'){
+        extraerMasterGalicia(items,file.name,mes);
+      } else {
+        extraerCuotasDelPDF(items,file.name,tipo,mes);
+      }
     }catch(err){
-      alert('Error leyendo PDF: '+err.message);
+      alert('Error procesando PDF: '+err.message+'\n\nProbá recargando la página.');
+      console.error(err);
     }
   };
   reader.readAsArrayBuffer(file);
@@ -1153,6 +1171,104 @@ function esMonto(s){return /^\d{1,3}(\.\d{3})*,\d{2}$/.test(s);}
 function parseMonto(s){return parseFloat(s.replace(/\./g,'').replace(',','.'));}
 function esFecha(s){return /^\d{2}\.\d{2}\.\d{2}$/.test(s);}
 function esComprobante(s){return /^\d{5,7}[K*]?$/.test(s);}
+function esMontoUSD(s){return /^\d{1,3}(\.\d{3})*,\d{2}$/.test(s)||/^\d+,\d{2}$/.test(s);}
+
+// Descripciones a ignorar (no son consumos reales)
+const DESC_IGNORAR=['SU PAGO','DEV.IMP','DB.RG','BONI MANT','COM MANT','SALDO ANT','PAGO EN','SU PAGO'];
+function esDescIgnorar(desc){
+  return DESC_IGNORAR.some(function(d){return desc.toUpperCase().includes(d);});
+}
+
+function esFechaMaster(s){
+  // Formato: 25-Abr-26, 13-May-26, etc.
+  return /^\d{2}-[A-Za-záéíóúÁÉÍÓÚ]{3}-\d{2}$/.test(s);
+}
+const MESES_MASTER={'Ene':0,'Feb':1,'Mar':2,'Abr':3,'May':4,'Jun':5,'Jul':6,'Ago':7,'Sep':8,'Set':8,'Oct':9,'Nov':10,'Dic':11};
+
+function extraerMasterGalicia(items,nombre,mes){
+  const cuotas=[];
+  const unPago=[];
+  let modo=''; // 'compras' o 'cuotas'
+
+  let i=0;
+  while(i<items.length){
+    const it=items[i];
+
+    // Detectar sección COMPRAS DEL MES / CUOTA DEL MES
+    if(it==='COMPRAS DEL MES'){modo='compras';i++;continue;}
+    if(it==='CUOTA DEL MES'){modo='cuotas';i++;continue;}
+    // Parar cuando llegamos a secciones no relevantes
+    if(it==='SUBTOTAL'||it==='TOTAL A PAGAR'||it==='OPCIONES DE FINANCIACION')break;
+
+    if(esFechaMaster(it)&&modo){
+      const posActual=i;
+      i++;
+      if(i>=items.length)break;
+
+      // Leer descripción hasta encontrar cuota (XX/YY) o comprobante (5 dígitos) o monto
+      let desc='';
+      let esCuota=false;
+      let cuotaActual=0,cuotaTotal=0;
+
+      while(i<items.length){
+        const cur=items[i];
+        // Monto final
+        if(esMonto(cur))break;
+        // Comprobante de 5 dígitos — lo saltamos
+        if(/^\d{5}$/.test(cur)){i++;break;}
+        // Cuota formato XX/YY
+        if(/^\d+\/\d+$/.test(cur)){
+          esCuota=true;
+          const p=cur.split('/');
+          cuotaActual=parseInt(p[0]);
+          cuotaTotal=parseInt(p[1]);
+          i++;
+          continue;
+        }
+        if(esFechaMaster(cur)||cur==='SUBTOTAL')break;
+        desc+=cur+' ';
+        i++;
+      }
+      desc=desc.trim().replace(/^[A-Z0-9]+\*/,'').substring(0,35).trim();
+
+      if(i<items.length&&esMonto(items[i])){
+        const monto=parseMonto(items[i]);
+        i++;
+        // Saltar columna dólares si viene
+        if(i<items.length&&esMonto(items[i]))i++;
+        if(monto<=0||desc.length<2)continue;
+
+        if(esCuota||modo==='cuotas'){
+          if(!esCuota){cuotaActual=1;cuotaTotal=1;}
+          cuotas.push({descripcion:desc,cuotaActual,cuotaTotal,monto,posicion:posActual});
+        } else {
+          if(!esDescIgnorar(desc)){
+            unPago.push({descripcion:desc,monto,posicion:posActual});
+          }
+        }
+      }
+      continue;
+    }
+    i++;
+  }
+
+  if(cuotas.length===0&&unPago.length===0){alert('No se encontraron consumos en el PDF');return;}
+
+  const tarjeta={
+    id:Date.now(),
+    nombre:nombre.replace('.pdf','').replace('.PDF',''),
+    tipo:'master-galicia',
+    seccionesTarjeta:[{numero:'Principal',titular:'BORDESSOLLES',cuotas}],
+    unPago,
+    fechaCarga:new Date().toLocaleDateString('es-AR')
+  };
+
+  if(!tarjetasPorMes[mes])tarjetasPorMes[mes]={};
+  tarjetasPorMes[mes]['master-galicia-'+tarjeta.id]=tarjeta;
+  guardar();
+  renderTarjetas();
+  alert('✓ '+cuotas.length+' cuotas y '+unPago.length+' consumos en 1 pago cargados');
+}
 
 function extraerCuotasDelPDF(items,nombre,tipo,mes){
   // Paso 1: detectar marcadores "Tarjeta XXXX Total" que aparecen AL FINAL de cada sección
@@ -1174,6 +1290,16 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
   const cuotas=[];
   const unPago=[];
 
+  // getSeccion: el marcador está AL FINAL de su sección
+  // item pertenece al PRIMER marcador cuya posición es MAYOR a la del item
+  function getSeccion(pos){
+    if(marcadores.length===0)return{numero:'???',titular:'Principal'};
+    for(var mi=0;mi<marcadores.length;mi++){
+      if(marcadores[mi].posicion>pos)return marcadores[mi];
+    }
+    return marcadores[marcadores.length-1];
+  }
+
   let i=0;
   while(i<items.length){
     if(esFecha(items[i])){
@@ -1186,10 +1312,37 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
       let desc='';
       let esCuota=false;
       let cuotaActual=0,cuotaTotal=0;
+      let esUSD=false;
+      let montoUSDVal=0;
 
       while(i<items.length){
         if(esMonto(items[i])||/^\d{1,3}(\.\d{3})*,\d{2}-$/.test(items[i]))break;
         if(esFecha(items[i])||items[i]==='_')break;
+        // Detectar USD como item separado: [USD] [800,66]
+        if(items[i]==='USD'){
+          esUSD=true; i++;
+          if(i<items.length&&esMontoUSD(items[i])){
+            montoUSDVal=parseMonto(items[i]);
+            i++;
+          }
+          // Saltar el monto en pesos que viene después (si es que viene)
+          if(i<items.length&&esMonto(items[i]))i++;
+          break;
+        }
+        // Detectar USD pegado al final de la descripción: "CLAUDE.AI SUBSCR in1TZ9LeBUSD"
+        if(items[i].endsWith('USD')&&items[i].length>3){
+          esUSD=true;
+          desc+=items[i].replace(/USD$/,'').trim()+' ';
+          i++;
+          // El primer monto es el USD, el segundo (si existe) es el en pesos — ignoramos el de pesos
+          if(i<items.length&&esMontoUSD(items[i])){
+            montoUSDVal=parseMonto(items[i]);
+            i++;
+            // Saltar segundo monto (pesos)
+            if(i<items.length&&esMonto(items[i]))i++;
+          }
+          break;
+        }
         if(items[i]==='Cuota'){
           esCuota=true;i++;
           if(i<items.length&&/^\d+\/\d+$/.test(items[i])){
@@ -1203,17 +1356,26 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
       }
       desc=desc.trim().replace(/^[A-Z0-9]+\*/,'').substring(0,35).trim();
 
+      // Si es USD, guardar con monto en dólares
+      if(esUSD){
+        if(montoUSDVal>0&&!esDescIgnorar(desc)&&desc.length>1){
+          unPago.push({descripcion:desc,monto:montoUSDVal,montoUSD:true,posicion:posActual});
+        }
+        continue;
+      }
+
       if(i<items.length&&esMonto(items[i])){
         const monto=parseMonto(items[i]);
         i++;
         if(monto<=0)continue;
+        // Ignorar si es pago/devolución/etc
+        if(esDescIgnorar(desc))continue;
+        if(desc.length<2)continue;
+
         if(esCuota){
           cuotas.push({descripcion:desc,cuotaActual,cuotaTotal,monto,posicion:posActual});
         } else {
-          const esDevolucion=desc.includes('PAGO')||desc.includes('BONI')||desc.length<2;
-          if(!esDevolucion){
-            unPago.push({descripcion:desc,monto,posicion:posActual});
-          }
+          unPago.push({descripcion:desc,monto,posicion:posActual});
         }
       }
       continue;
@@ -1223,17 +1385,7 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
 
   if(cuotas.length===0&&unPago.length===0){alert('No se encontraron consumos en el PDF');return;}
 
-  // Paso 3: asignar sección — el marcador está AL FINAL de su sección
-  // entonces: item pertenece al PRIMER marcador cuya posición es MAYOR a la del item
-  function getSeccion(pos){
-    if(marcadores.length===0)return{numero:'???',titular:'Principal'};
-    for(const m of marcadores){
-      if(m.posicion>pos)return m;
-    }
-    return marcadores[marcadores.length-1];
-  }
-
-  // Paso 4: agrupar
+  // Paso 3 → Paso 4: agrupar
   const porTarjeta={};
   marcadores.forEach(m=>{porTarjeta[m.numero]={numero:m.numero,titular:m.titular,cuotas:[]};});
   if(Object.keys(porTarjeta).length===0)porTarjeta['???']={numero:'???',titular:'Principal',cuotas:[]};
@@ -1325,6 +1477,9 @@ function renderTarjetas(){
       const totalUnPago=unPago.reduce(function(s,c){return s+c.monto;},0);
       const totalGeneral=totalCuotas+totalUnPago;
 
+      const unPagoUSD=unPago.filter(function(c){return c.montoUSD;});
+      const totalUSD=unPagoUSD.reduce(function(s,c){return s+c.monto;},0);
+
       html+='<div class="card" style="margin-top:1rem">'
         +'<div class="card-header">'
           +'<span class="card-title">💳 '+t.nombre+' <span style="font-size:11px;color:#999;font-weight:normal">('+t.tipo+')</span></span>'
@@ -1338,6 +1493,7 @@ function renderTarjetas(){
           +'<div class="metric"><div class="metric-label">Nuevas ('+cuotasNuevas.length+')</div><div class="metric-value">'+fmt(totalNuevas)+'</div></div>'
           +'<div class="metric"><div class="metric-label">1 pago</div><div class="metric-value neg">'+fmt(totalUnPago)+'</div></div>'
           +'<div class="metric"><div class="metric-label">Finalizan ('+cuotasUltimas.length+')</div><div class="metric-value pos">'+fmt(totalUltimas)+'</div></div>'
+          +(totalUSD>0?'<div class="metric"><div class="metric-label">Total USD</div><div class="metric-value" style="color:#fa0">U$S '+totalUSD.toFixed(2)+'</div></div>':'')
         +'</div>';
 
       const secciones=t.seccionesTarjeta||[{numero:'???',titular:'',cuotas:t.cuotas||[]}];
@@ -1389,9 +1545,10 @@ function renderTarjetas(){
             +'<th style="text-align:right;padding:6px 8px;color:#999">Monto</th>'
           +'</tr></thead><tbody>';
         unPago.forEach(function(c){
+          const labelUSD=c.montoUSD?'<span style="font-size:10px;background:#4a3a1a;color:#fa0;padding:1px 5px;border-radius:3px;margin-left:4px">USD</span>':'';
           html+='<tr style="border-top:1px solid #333">'
-            +'<td style="padding:6px 8px">'+c.descripcion+'</td>'
-            +'<td style="text-align:right;padding:6px 8px;color:#f88">'+fmt(c.monto)+'</td>'
+            +'<td style="padding:6px 8px">'+c.descripcion+labelUSD+'</td>'
+            +'<td style="text-align:right;padding:6px 8px;color:'+(c.montoUSD?'#fa0':'#f88')+'">'+fmt(c.monto)+'</td>'
           +'</tr>';
         });
         html+='<tr style="border-top:1px solid #444;background:#1a1a1a">'
