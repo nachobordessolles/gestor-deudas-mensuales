@@ -328,6 +328,7 @@ const CURRENT_YEAR=TODAY.getFullYear();
 let currentView='resumen', currentMonthIdx=CURRENT_MONTH;
 let deudas=[],fijos=[],pagados={},categorias=[],saldados={};
 let editingId=null,editingFijoId=null,saveTimer=null;
+let filtroLista='', ordenLista='persona', ordenDir=1;
 
 const DEFAULT_DEUDAS=[];
 const DEFAULT_CATS=[{id:201,nombre:'Servicios',color:'#378ADD'}];
@@ -479,7 +480,10 @@ function renderResumen(){
     alertHtml+=`</div>`;
   }
 
-  let html=alertHtml+`<div class="month-nav">
+  let html=alertHtml+`<div style="text-align:right;margin-bottom:8px;">
+    <button onclick="exportarMes()" style="background:#333;border-color:#444;color:#aaa;font-size:11px;padding:5px 10px;">📤 Exportar mes</button>
+  </div>
+  <div class="month-nav">
     <button onclick="changeMonth(-1)">←</button>
     <span class="month-label">${MONTHS[M]} ${A}</span>
     <button onclick="changeMonth(1)">→</button>
@@ -579,8 +583,37 @@ function renderLista(){
   let totPos=0,totNeg=0;
   deudas.forEach(d=>{if(d.cuotaTotal===999)return;const r=d.cuotaTotal-d.cuotaInicio+1;if(d.negativo)totNeg+=r*d.monto;else totPos+=r*d.monto;});
   const neto=totPos-totNeg;
-  let html=`<div class="card"><table><thead><tr><th>Persona</th><th>Producto</th><th style="text-align:center">C</th><th style="text-align:center">T</th><th style="text-align:right">Monto</th><th style="text-align:center">Año</th><th style="text-align:center">Dir</th><th></th></tr></thead><tbody>`;
-  deudas.forEach(d=>{
+
+  // Filtrar y ordenar
+  let lista=deudas.filter(d=>{
+    if(!filtroLista)return true;
+    const t=filtroLista.toLowerCase();
+    return d.persona.toLowerCase().includes(t)||d.producto.toLowerCase().includes(t);
+  });
+  lista=[...lista].sort((a,b)=>{
+    let va,vb;
+    if(ordenLista==='persona'){va=a.persona.toLowerCase();vb=b.persona.toLowerCase();}
+    else if(ordenLista==='producto'){va=a.producto.toLowerCase();vb=b.producto.toLowerCase();}
+    else if(ordenLista==='monto'){va=a.monto;vb=b.monto;}
+    else if(ordenLista==='ano'){va=a.anoInicio||2026;vb=b.anoInicio||2026;}
+    if(va<vb)return -1*ordenDir;
+    if(va>vb)return 1*ordenDir;
+    return 0;
+  });
+
+  const flecha=c=>ordenLista===c?(ordenDir===1?' ▲':' ▼'):'';
+  let html=`<div class="card" style="margin-bottom:1rem;padding:10px">
+    <input type="text" id="busqueda" placeholder="🔍 Buscar persona o producto..." value="${filtroLista}"
+      oninput="filtrarLista(this.value)" style="width:100%;box-sizing:border-box;">
+  </div>`;
+  html+=`<div class="card"><table><thead><tr>
+    <th style="cursor:pointer" onclick="ordenar('persona')">Persona${flecha('persona')}</th>
+    <th style="cursor:pointer" onclick="ordenar('producto')">Producto${flecha('producto')}</th>
+    <th style="text-align:center">C</th><th style="text-align:center">T</th>
+    <th style="text-align:right;cursor:pointer" onclick="ordenar('monto')">Monto${flecha('monto')}</th>
+    <th style="text-align:center;cursor:pointer" onclick="ordenar('ano')">Año${flecha('ano')}</th>
+    <th style="text-align:center">Dir</th><th></th></tr></thead><tbody>`;
+  lista.forEach(d=>{
     const isSub=d.cuotaTotal===999;
     const isEditing=editingId===d.id;
     if(isEditing){
@@ -597,6 +630,7 @@ function renderLista(){
               <div class="form-group"><label>Mes inicio</label><select id="e-mes">${MONTHS.map((m,i)=>`<option value="${i}"${i===d.mesInicio?' selected':''}>${m}</option>`).join('')}</select></div>
               <div class="form-group"><label>Año inicio</label><input id="e-ano" type="number" value="${d.anoInicio||2026}"></div>
               <div class="form-group"><label>Dirección</label><select id="e-neg"><option value="false"${!d.negativo?' selected':''}>Me deben</option><option value="true"${d.negativo?' selected':''}>Yo debo</option></select></div>
+              <div class="form-group" style="grid-column:1/-1"><label>Notas</label><input id="e-notas" value="${(d.notas||'').replace(/"/g,'&quot;')}" placeholder="Opcional"></div>
             </div>
             <div style="display:flex;gap:8px;margin-top:10px">
               <button onclick="guardarEdit(${d.id})" style="background:#2a5a3a;border-color:#4a7a5a">✓ Guardar</button>
@@ -608,7 +642,7 @@ function renderLista(){
       </tr>`;
     } else {
       html+=`<tr style="cursor:pointer" onclick="startEdit(${d.id})">
-        <td>${d.persona}</td><td>${d.producto}</td>
+        <td>${d.persona}</td><td>${d.producto}${d.notas?`<span title="${d.notas.replace(/"/g,'&quot;')}" style="margin-left:4px;cursor:help">📝</span>`:''}</td>
         <td style="text-align:center">${d.cuotaInicio}</td><td style="text-align:center">${isSub?'S':d.cuotaTotal}</td>
         <td style="text-align:right;color:${d.negativo?'#f88':'#fff'}">${d.negativo?'-':''}${fmt(d.monto)}</td>
         <td style="text-align:center">${d.anoInicio||2026}</td>
@@ -625,6 +659,14 @@ function renderLista(){
   document.getElementById('view-lista').innerHTML=html;
 }
 
+function filtrarLista(val){filtroLista=val;
+  // re-render sin perder foco del input
+  const lista=deudas.filter(d=>{if(!filtroLista)return true;const t=filtroLista.toLowerCase();return d.persona.toLowerCase().includes(t)||d.producto.toLowerCase().includes(t);});
+  renderLista();
+  const inp=document.getElementById('busqueda');if(inp){inp.focus();inp.setSelectionRange(val.length,val.length);}
+}
+function ordenar(col){if(ordenLista===col)ordenDir*=-1;else{ordenLista=col;ordenDir=1;}renderLista();}
+
 function startEdit(id){if(modoLectura)return;editingId=(editingId===id)?null:id;renderLista();}
 function cancelEdit(){editingId=null;renderLista();}
 function guardarEdit(id){
@@ -638,8 +680,9 @@ function guardarEdit(id){
   const mesInicio=parseInt(document.getElementById('e-mes').value);
   const anoInicio=parseInt(document.getElementById('e-ano').value)||2026;
   const negativo=document.getElementById('e-neg').value==='true';
+  const notas=document.getElementById('e-notas').value.trim();
   if(!persona||!producto||isNaN(monto)||isNaN(cini)||isNaN(ctot)){alert('Completá todos los campos');return;}
-  Object.assign(d,{persona,producto,monto,cuotaInicio:cini,cuotaTotal:ctot,mesInicio,anoInicio,negativo});
+  Object.assign(d,{persona,producto,monto,cuotaInicio:cini,cuotaTotal:ctot,mesInicio,anoInicio,negativo,notas});
   editingId=null;
   guardar();
   renderLista();
@@ -745,9 +788,84 @@ function renderCategorias(){
       <input id="nc-color" type="hidden" value="${CAT_COLORS[0]}">
     </div>
     <button onclick="agregarCategoria()" style="margin-top:10px">+ Agregar</button>
+  </div>
+  <div class="card" style="margin-top:1rem"><strong>💾 Backup de datos</strong>
+    <p style="font-size:12px;color:#999;margin:8px 0">Descargá una copia de todos tus datos o restaurá desde un archivo.</p>
+    <div class="btn-row">
+      <button onclick="descargarBackup()">⬇ Descargar backup</button>
+      <button onclick="document.getElementById('file-restore').click()" style="background:#3a3a5a;border-color:#5a5a7a">⬆ Restaurar backup</button>
+      <input type="file" id="file-restore" accept=".json" style="display:none" onchange="restaurarBackup(this)">
+    </div>
+  </div>
+  <div class="card" style="margin-top:1rem"><strong>🔔 Notificaciones</strong>
+    <p style="font-size:12px;color:#999;margin:8px 0">Activá los avisos del navegador para los vencimientos próximos.</p>
+    <div class="btn-row">
+      <button onclick="activarNotificaciones()" id="btn-notif">Activar notificaciones</button>
+      <button onclick="revisarVencimientos(true)" style="background:#333;border-color:#444">Probar ahora</button>
+    </div>
+    <p id="notif-estado" style="font-size:11px;color:#666;margin-top:8px"></p>
   </div>`;
   document.getElementById('view-categorias').innerHTML=html;
   selectColor(CAT_COLORS[0]);
+  actualizarEstadoNotif();
+}
+
+function descargarBackup(){
+  const estado={deudas,fijos,pagados,categorias,saldados,ts:Date.now()};
+  const blob=new Blob([JSON.stringify(estado,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  const fecha=new Date().toISOString().split('T')[0];
+  a.download=`backup-deudas-${fecha}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function restaurarBackup(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const estado=JSON.parse(e.target.result);
+      if(!estado.deudas){alert('Archivo inválido');return;}
+      if(!confirm('¿Reemplazar todos los datos actuales con los del backup?'))return;
+      aplicarEstado(estado);
+      guardar();
+      renderResumen();
+      alert('✓ Backup restaurado correctamente');
+      setView('resumen');
+    }catch(err){alert('Error leyendo el archivo: '+err.message);}
+  };
+  reader.readAsText(file);
+}
+
+// ── Notificaciones ──
+function actualizarEstadoNotif(){
+  const el=document.getElementById('notif-estado');const btn=document.getElementById('btn-notif');
+  if(!el)return;
+  if(!('Notification'in window)){el.textContent='Tu navegador no soporta notificaciones.';if(btn)btn.disabled=true;return;}
+  if(Notification.permission==='granted'){el.textContent='✓ Notificaciones activadas';if(btn){btn.textContent='Activadas ✓';btn.disabled=true;}}
+  else if(Notification.permission==='denied'){el.textContent='Bloqueadas. Activalas desde la config del navegador.';}
+  else{el.textContent='Sin activar.';}
+}
+function activarNotificaciones(){
+  if(!('Notification'in window)){alert('Tu navegador no soporta notificaciones');return;}
+  Notification.requestPermission().then(perm=>{
+    actualizarEstadoNotif();
+    if(perm==='granted'){new Notification('Gestor de Deudas',{body:'¡Notificaciones activadas! Te avisaremos de los vencimientos.'});revisarVencimientos();}
+  });
+}
+function revisarVencimientos(forzar){
+  if(!('Notification'in window)||Notification.permission!=='granted'){if(forzar)alert('Primero activá las notificaciones');return;}
+  const alertas=getAlertas();
+  if(alertas.length===0){if(forzar)new Notification('Gestor de Deudas',{body:'Sin vencimientos en los próximos 3 días ✓'});return;}
+  const hoy=alertas.filter(a=>a.diff===0);
+  const proximos=alertas.filter(a=>a.diff>0);
+  let body='';
+  if(hoy.length)body+=`Vence HOY: ${hoy.map(a=>a.nombre).join(', ')}. `;
+  if(proximos.length)body+=`Próximos: ${proximos.map(a=>`${a.nombre} (${a.diff}d)`).join(', ')}.`;
+  new Notification('🔔 Vencimientos',{body});
 }
 
 function renderAgregar(){
@@ -804,6 +922,52 @@ function agregarFijo(){
 }
 function eliminarFijo(id){fijos=fijos.filter(x=>x.id!==id);guardar();renderFijos();}
 function eliminarDeuda(id){deudas=deudas.filter(x=>x.id!==id);guardar();renderLista();}
+function exportarMes(){
+  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const personas=getPersonas();
+  let txt=`📊 RESUMEN ${MONTHS[M].toUpperCase()} ${A}\n${'─'.repeat(28)}\n\n`;
+
+  // Cuotas por persona
+  personas.forEach(p=>{
+    const items=deudas.filter(d=>d.persona===p&&getCuotaEnMes(d,M,A)!==null);
+    if(!items.length)return;
+    const tot=items.reduce((s,d)=>s+getMonto(d),0);
+    txt+=`👤 ${p}: ${tot<0?'-':''}${fmt(tot)}\n`;
+    items.forEach(d=>{
+      const c=getCuotaEnMes(d,M,A);
+      const cuotaStr=d.cuotaTotal===999?'Sub':c+'/'+d.cuotaTotal;
+      txt+=`   • ${d.producto}: ${d.negativo?'-':''}${fmt(d.monto)} (${cuotaStr})\n`;
+    });
+    txt+=`\n`;
+  });
+
+  // Fijos
+  const fijosAct=fijos.filter(f=>f.frecuencia!=='semanal'&&fijoActivoEnMes(f,M,A));
+  const fijosSem=fijos.filter(f=>f.frecuencia==='semanal');
+  if(fijosAct.length||fijosSem.length){
+    txt+=`🏠 GASTOS FIJOS\n`;
+    fijosAct.forEach(f=>{
+      const paid=isPagado(f.id,M,A);
+      txt+=`   ${paid?'✓':'○'} ${f.nombre}: ${fmt(f.monto)} (vence ${f.vencimiento})\n`;
+    });
+    fijosSem.forEach(f=>{
+      const sems=getSemanasDelMes(f,M,A);
+      const pag=sems.filter((_,i)=>isSemPagada(f.id,M,A,i)).length;
+      txt+=`   ${f.nombre}: ${fmt(f.monto)}/sem × ${sems.length} = ${fmt(sems.length*f.monto)} (${pag}/${sems.length} pagadas)\n`;
+    });
+    txt+=`\n`;
+  }
+
+  const td=getTotalDeudaMes(M,A),tf=getTotalFijosMes(M,A);
+  txt+=`${'─'.repeat(28)}\n`;
+  txt+=`Cuotas: ${fmt(td)}\nFijos: ${fmt(tf)}\nTOTAL: ${fmt(td+tf)}`;
+
+  navigator.clipboard.writeText(txt).then(()=>{
+    const btns=[...document.querySelectorAll('button')].filter(b=>b.textContent.includes('Exportar'));
+    if(btns[0]){const o=btns[0].innerHTML;btns[0].innerHTML='✓ Copiado';btns[0].style.color='#6f8';setTimeout(()=>{btns[0].innerHTML=o;btns[0].style.color='';},2000);}
+  }).catch(()=>alert(txt));
+}
+
 function copiarPersona(p,m,a){
   const items=deudas.filter(d=>d.persona===p&&getCuotaEnMes(d,m,a)!==null);
   if(!items.length)return;
@@ -963,8 +1127,38 @@ function renderStats(){
   }
   html+=`</div>`;
 
-  // Resumen general
-  const totalAcum=totales.reduce((s,t)=>s+t,0);
+  // ── Proyección fin de pago ──
+  const proyeccion=personas.map(p=>{
+    const items=deudas.filter(d=>d.persona===p&&d.cuotaTotal!==999);
+    if(!items.length)return null;
+    // Para cada deuda, mes de la última cuota
+    let maxMes=-1;
+    items.forEach(d=>{
+      const cuotasRest=d.cuotaTotal-d.cuotaInicio; // cuántas faltan desde el inicio
+      const mesFin=(d.anoInicio||2026)*12+d.mesInicio+cuotasRest;
+      if(mesFin>maxMes)maxMes=mesFin;
+    });
+    return{p,anio:Math.floor(maxMes/12),mes:maxMes%12,raw:maxMes};
+  }).filter(Boolean).sort((a,b)=>a.raw-b.raw);
+
+  if(proyeccion.length){
+    const ahora=CURRENT_YEAR*12+CURRENT_MONTH;
+    html+=`<div class="card" style="margin-top:1rem">
+      <div class="card-header"><span class="card-title">🏁 Proyección de fin de pago</span></div>`;
+    proyeccion.forEach(({p,anio,mes,raw})=>{
+      const mesesRest=raw-ahora;
+      const terminado=mesesRest<0;
+      html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #333">
+        <span style="font-size:13px">${p}</span>
+        <div style="text-align:right">
+          <div style="font-size:13px;font-weight:500;color:${terminado?'#6f8':'#fff'}">${terminado?'✓ Saldado':`${MONTHS[mes]} ${anio}`}</div>
+          ${terminado?'':`<div style="font-size:11px;color:#666">faltan ${mesesRest} ${mesesRest===1?'mes':'meses'}</div>`}
+        </div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+
   html+=`<div class="grand-total" style="margin-top:1rem">
     <strong>Resumen ${A}</strong><br>
     Total anual estimado: <strong>${fmt(totalAcum)}</strong> |
@@ -1009,6 +1203,8 @@ async function init(){
   }
 
   renderResumen();
+  // Revisar vencimientos al abrir (si están activadas las notificaciones)
+  setTimeout(()=>revisarVencimientos(),1500);
 }
 
 modoLectura=false; iniciarApp();
