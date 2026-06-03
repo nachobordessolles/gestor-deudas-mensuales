@@ -247,6 +247,10 @@
   <div id="view-agregar" class="hide"></div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+pdfdist.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
 <script>
 // ── Auth ─────────────────────────────────────────────────────────────
 const PASS_ADMIN = 'Poseidon321.@';
@@ -301,6 +305,7 @@ function iniciarApp(){
       <button class="tab" id="tab-lista" onclick="setView(\'lista\')">📋 Cuotas</button>
       <button class="tab" id="tab-fijos" onclick="setView(\'fijos\')">🏠 Fijos <span id="badge-fijos" style="display:none;background:#f88;color:#111;border-radius:10px;font-size:10px;padding:1px 5px;margin-left:2px;"></span></button>
       <button class="tab" id="tab-stats" onclick="setView(\'stats\')">📊 Estadísticas</button>
+      <button class="tab" id="tab-tarjetas" onclick="setView(\'tarjetas\')">💳 Tarjetas</button>
       <button class="tab" id="tab-categorias" onclick="setView(\'categorias\')">🏷 Categorías</button>
       ${modoLectura?'':'<button class="tab" id="tab-agregar" onclick="setView(\'agregar\')">➕ Agregar</button>'}
     </div>
@@ -309,6 +314,7 @@ function iniciarApp(){
     <div id="view-lista" class="hide"></div>
     <div id="view-fijos" class="hide"></div>
     <div id="view-stats" class="hide"></div>
+    <div id="view-tarjetas" class="hide"></div>
     <div id="view-categorias" class="hide"></div>
     ${modoLectura?'':'<div id="view-agregar" class="hide"></div>'}
   </div>`;
@@ -329,6 +335,7 @@ let currentView='resumen', currentMonthIdx=CURRENT_MONTH;
 let deudas=[],fijos=[],pagados={},categorias=[],saldados={};
 let editingId=null,editingFijoId=null,saveTimer=null;
 let filtroLista='', ordenLista='persona', ordenDir=1;
+let tarjetas=[];
 
 const DEFAULT_DEUDAS=[];
 const DEFAULT_CATS=[{id:201,nombre:'Servicios',color:'#378ADD'}];
@@ -344,12 +351,12 @@ function load(key){try{const v=localStorage.getItem(key);return v?JSON.parse(v):
 
 async function guardarSheets(){
   const estado = {
-    deudas, fijos, pagados, categorias, saldados,
+    deudas, fijos, pagados, categorias, saldados, tarjetas,
     ts: Date.now()
   };
   // Guardar en localStorage como backup inmediato
   save('gd-deudas',deudas);save('gd-fijos',fijos);save('gd-pagados',pagados);
-  save('gd-cats',categorias);save('gd-saldados',saldados);
+  save('gd-cats',categorias);save('gd-saldados',saldados);save('gd-tarjetas',tarjetas);
   try {
     await fetch(SCRIPT_URL, {
       method:'POST', mode:'no-cors',
@@ -1043,6 +1050,7 @@ function setView(v){
   else if(v==='lista')renderLista();
   else if(v==='fijos')renderFijos();
   else if(v==='stats')renderStats();
+  else if(v==='tarjetas')renderTarjetas();
   else if(v==='categorias')renderCategorias();
   else if(v==='agregar')renderAgregar();
 }
@@ -1077,6 +1085,132 @@ function getAlertas(){
     }
   });
   return alertas.sort((a,b)=>a.diff-b.diff);
+}
+
+// ── Tarjetas de Crédito ──────────────────────────────────────────
+async function procesarPDF(file){
+  const reader=new FileReader();
+  reader.onload=async e=>{
+    try{
+      const pdfData=new Uint8Array(e.target.result);
+      const pdf=await pdfdist.getDocument({data:pdfData}).promise;
+      let texto='';
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);
+        const content=await page.getTextContent();
+        texto+=content.items.map(item=>item.str).join(' ')+'\n';
+      }
+      extraerCuotasDelPDF(texto,file.name);
+    }catch(err){
+      alert('Error leyendo PDF: '+err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function extraerCuotasDelPDF(texto,nombre){
+  // Patrón: MERPAGO*ALGO Cuota XX/YY monto
+  const patron=/MERPAGO\*([^\s]+)\s+Cuota\s+(\d+)\/(\d+)\s+([\d.,]+)/g;
+  let match;
+  const cuotas=[];
+  while((match=patron.exec(texto))!==null){
+    cuotas.push({
+      descripcion:match[1].substring(0,30),
+      cuotaActual:parseInt(match[2]),
+      cuotaTotal:parseInt(match[3]),
+      monto:parseFloat(match[4].replace(/\./g,'').replace(',','.')),
+      fecha:new Date(),
+      tarjeta:nombre
+    });
+  }
+  
+  if(cuotas.length===0){alert('No se encontraron cuotas en el PDF');return;}
+  
+  // Crear tarjeta
+  const tarjeta={
+    id:Date.now(),
+    nombre:nombre.replace('.pdf',''),
+    cuotas:cuotas,
+    fechaCierre:new Date(),
+    vencimiento:new Date(),
+    saldoTotal:cuotas.reduce((s,c)=>s+c.monto,0)
+  };
+  tarjetas.push(tarjeta);
+  guardar();
+  renderTarjetas();
+  alert(`✓ ${cuotas.length} cuotas cargadas de ${nombre}`);
+}
+
+function renderTarjetas(){
+  let html=`<div class="card" style="margin-bottom:1rem">
+    <strong>Subir resumen de tarjeta (PDF)</strong>
+    <p style="font-size:12px;color:#999;margin:8px 0">Carga el resumen mensual en PDF y extraeremos automáticamente las cuotas.</p>
+    <input type="file" id="pdf-upload" accept=".pdf" onchange="procesarPDF(this.files[0])" style="display:block;margin:10px 0">
+    <button onclick="document.getElementById('pdf-upload').click()" style="width:100%">📁 Seleccionar PDF</button>
+  </div>`;
+
+  if(tarjetas.length===0){
+    html+=`<div class="card"><p style="color:#666;font-size:13px">Sin tarjetas cargadas aún.</p></div>`;
+  } else {
+    const hoy=new Date();
+    const mesActual=hoy.getMonth();
+    const anoActual=hoy.getFullYear();
+
+    tarjetas.forEach(t=>{
+      // Cuotas que vencen este mes (asumimos que vencen el día de cierre)
+      const cuotasEsteMe s=t.cuotas.filter(c=>c.cuotaActual===1); // simplificado: solo cuota 1 es "nueva"
+      const totalEsteM es=cuotasEsteMes.reduce((s,c)=>s+c.monto,0);
+      const cuotasTotal=t.cuotas.reduce((s,c)=>s+c.monto,0);
+      
+      html+=`<div class="card" style="margin-top:1rem">
+        <div class="card-header">
+          <span class="card-title">${t.nombre}</span>
+          <button class="danger" onclick="eliminarTarjeta(${t.id})" style="padding:3px 8px">✕</button>
+        </div>
+        <p style="font-size:12px;color:#999;margin:6px 0">${t.cuotas.length} cuotas | Total: ${fmt(cuotasTotal)}</p>
+        
+        <div style="background:#1a1a1a;border-radius:6px;padding:10px;margin:10px 0">
+          <div style="font-size:11px;color:#666">Este mes (cuotas nuevas)</div>
+          <div style="font-size:16px;font-weight:500;color:#6f8">${fmt(totalEsteMes)}</div>
+        </div>
+
+        <table style="width:100%;border-collapse:collapse;font-size:12px;margin:10px 0">
+          <thead><tr style="border-bottom:1px solid #333">
+            <th style="text-align:left;padding:8px">Descripción</th>
+            <th style="text-align:center;padding:8px">Cuota</th>
+            <th style="text-align:right;padding:8px">Monto</th>
+          </tr></thead>
+          <tbody>`;
+      
+      t.cuotas.forEach(c=>{
+        html+=`<tr style="border-bottom:1px solid #333">
+          <td style="padding:6px 8px">${c.descripcion}</td>
+          <td style="text-align:center;padding:6px 8px;font-size:11px">${c.cuotaActual}/${c.cuotaTotal}</td>
+          <td style="text-align:right;padding:6px 8px">${fmt(c.monto)}</td>
+        </tr>`;
+      });
+      
+      html+=`</tbody></table>
+        <div style="background:#2a1a1a;border-radius:6px;padding:10px;margin-top:10px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:12px;color:#999">Total cargado:</span>
+            <span style="font-size:14px;font-weight:500;color:#f88">${fmt(cuotasTotal)}</span>
+          </div>
+          <button class="danger" onclick="eliminarTarjeta(${t.id})" style="width:100%;padding:6px">Eliminar tarjeta</button>
+        </div>
+      </div>`;
+    });
+  }
+
+  document.getElementById('view-tarjetas').innerHTML=html;
+}
+
+function eliminarTarjeta(id){
+  const t=tarjetas.find(x=>x.id===id);
+  if(!confirm(`¿Eliminar tarjeta ${t?t.nombre:''}?`))return;
+  tarjetas=tarjetas.filter(x=>x.id!==id);
+  guardar();
+  renderTarjetas();
 }
 
 // ── Estadísticas ─────────────────────────────────────────────────────
@@ -1211,6 +1345,7 @@ function aplicarEstado(estado){
   categorias  = estado.categorias || DEFAULT_CATS;
   pagados     = estado.pagados || {};
   saldados    = estado.saldados || {};
+  tarjetas    = estado.tarjetas || [];
   const sf    = estado.fijos;
   if(sf&&sf.length>0){
     fijos = migrateFijos(sf);
