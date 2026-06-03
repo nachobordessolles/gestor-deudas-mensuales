@@ -1163,6 +1163,8 @@ function renderStats(){
     html+=`</div>`;
   }
 
+  // ── Resumen general ──
+  const totalAcum=totales.reduce((s,t)=>s+t,0);
   html+=`<div class="grand-total" style="margin-top:1rem">
     <strong>Resumen ${A}</strong><br>
     Total anual estimado: <strong>${fmt(totalAcum)}</strong> |
