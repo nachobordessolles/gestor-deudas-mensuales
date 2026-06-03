@@ -338,7 +338,8 @@ let deudas=[],fijos=[],pagados={},categorias=[],saldados={};
 let editingId=null,editingFijoId=null,saveTimer=null;
 let filtroLista='', ordenLista='persona', ordenDir=1;
 let tarjetasPorMes={};
-let mesTarjetaSeleccionado=null; // persiste el mes elegido en el tab tarjetas
+let mesTarjetaSeleccionado=null;
+let tipoTarjetaSeleccionado='visa-galicia-mas'; // persiste el tipo elegido
 
 const DEFAULT_DEUDAS=[];
 const DEFAULT_CATS=[{id:201,nombre:'Servicios',color:'#378ADD'}];
@@ -1104,7 +1105,7 @@ async function debugPDF(file){
         texto+=`\n=== PÁGINA ${i} ===\n`;
         // Mostrar cada item por separado para ver cómo viene
         content.items.forEach(item=>{
-          if(item.str.trim()) texto+=`[${item.str}]\n`;
+          if(item.str.trim()) texto+=`[${item.str.replace(/\s+/g,' ').trim()}]\n`;
         });
       }
       // Mostrar en un textarea copiable
@@ -1145,7 +1146,10 @@ async function procesarPDFConTipo(file){
       for(let i=1;i<=pdf.numPages;i++){
         const page=await pdf.getPage(i);
         const content=await page.getTextContent();
-        content.items.forEach(it=>{const s=it.str.trim();if(s)items.push(s);});
+        content.items.forEach(it=>{
+          const s=it.str.replace(/\s+/g,' ').trim();
+          if(s)items.push(s);
+        });
       }
       if(items.length===0){alert('El PDF no contiene texto legible');return;}
       
@@ -1188,44 +1192,40 @@ const MESES_MASTER={'Ene':0,'Feb':1,'Mar':2,'Abr':3,'May':4,'Jun':5,'Jul':6,'Ago
 function extraerMasterGalicia(items,nombre,mes){
   const cuotas=[];
   const unPago=[];
-  let modo=''; // 'compras' o 'cuotas'
 
-  let i=0;
+  // Arrancar desde COMPRAS DEL MES para evitar el SUBTOTAL previo
+  const idxStart=items.findIndex(function(x){return x.includes('COMPRAS DEL MES');});
+  if(idxStart===-1){alert('No se encontró la sección de consumos en el PDF');return;}
+
+  let modo='';
+  let i=idxStart;
   while(i<items.length){
     const it=items[i];
 
-    // Detectar sección COMPRAS DEL MES / CUOTA DEL MES
-    if(it==='COMPRAS DEL MES'){modo='compras';i++;continue;}
-    if(it==='CUOTA DEL MES'){modo='cuotas';i++;continue;}
-    // Parar cuando llegamos a secciones no relevantes
-    if(it==='SUBTOTAL'||it==='TOTAL A PAGAR'||it==='OPCIONES DE FINANCIACION')break;
+    if(it.includes('COMPRAS DEL MES')){modo='compras';i++;continue;}
+    if(it.includes('CUOTA DEL MES')){modo='cuotas';i++;continue;}
+    // Parar solo cuando ya estamos en modo y encontramos SUBTOTAL
+    if(modo&&(it.startsWith('SUBTOTAL')||it==='TOTAL A PAGAR'||it.includes('OPCIONES DE')))break;
 
     if(esFechaMaster(it)&&modo){
-      const posActual=i;
       i++;
       if(i>=items.length)break;
 
-      // Leer descripción hasta encontrar cuota (XX/YY) o comprobante (5 dígitos) o monto
       let desc='';
       let esCuota=false;
       let cuotaActual=0,cuotaTotal=0;
 
       while(i<items.length){
         const cur=items[i];
-        // Monto final
         if(esMonto(cur))break;
-        // Comprobante de 5 dígitos — lo saltamos
         if(/^\d{5}$/.test(cur)){i++;break;}
-        // Cuota formato XX/YY
         if(/^\d+\/\d+$/.test(cur)){
           esCuota=true;
           const p=cur.split('/');
-          cuotaActual=parseInt(p[0]);
-          cuotaTotal=parseInt(p[1]);
-          i++;
-          continue;
+          cuotaActual=parseInt(p[0]);cuotaTotal=parseInt(p[1]);
+          i++;continue;
         }
-        if(esFechaMaster(cur)||cur==='SUBTOTAL')break;
+        if(esFechaMaster(cur)||cur.includes('SUBTOTAL'))break;
         desc+=cur+' ';
         i++;
       }
@@ -1234,16 +1234,16 @@ function extraerMasterGalicia(items,nombre,mes){
       if(i<items.length&&esMonto(items[i])){
         const monto=parseMonto(items[i]);
         i++;
-        // Saltar columna dólares si viene
+        // Saltar columna dólares
         if(i<items.length&&esMonto(items[i]))i++;
-        if(monto<=0||desc.length<2)continue;
+        if(monto<=0||desc.length<2){continue;}
 
         if(esCuota||modo==='cuotas'){
           if(!esCuota){cuotaActual=1;cuotaTotal=1;}
-          cuotas.push({descripcion:desc,cuotaActual,cuotaTotal,monto,posicion:posActual});
+          cuotas.push({descripcion:desc,cuotaActual:cuotaActual,cuotaTotal:cuotaTotal,monto:monto,posicion:i});
         } else {
           if(!esDescIgnorar(desc)){
-            unPago.push({descripcion:desc,monto,posicion:posActual});
+            unPago.push({descripcion:desc,monto:monto,posicion:i});
           }
         }
       }
@@ -1252,14 +1252,17 @@ function extraerMasterGalicia(items,nombre,mes){
     i++;
   }
 
-  if(cuotas.length===0&&unPago.length===0){alert('No se encontraron consumos en el PDF');return;}
+  if(cuotas.length===0&&unPago.length===0){
+    alert('No se encontraron consumos. Cuotas='+cuotas.length+' UnPago='+unPago.length+'\nModo al terminar: '+modo);
+    return;
+  }
 
   const tarjeta={
     id:Date.now(),
     nombre:nombre.replace('.pdf','').replace('.PDF',''),
     tipo:'master-galicia',
-    seccionesTarjeta:[{numero:'Principal',titular:'BORDESSOLLES',cuotas}],
-    unPago,
+    seccionesTarjeta:[{numero:'Principal',titular:'BORDESSOLLES',cuotas:cuotas}],
+    unPago:unPago,
     fechaCarga:new Date().toLocaleDateString('es-AR')
   };
 
@@ -1269,6 +1272,7 @@ function extraerMasterGalicia(items,nombre,mes){
   renderTarjetas();
   alert('✓ '+cuotas.length+' cuotas y '+unPago.length+' consumos en 1 pago cargados');
 }
+
 
 function extraerCuotasDelPDF(items,nombre,tipo,mes){
   // Paso 1: detectar marcadores "Tarjeta XXXX Total" que aparecen AL FINAL de cada sección
@@ -1422,9 +1426,11 @@ function renderTarjetas(){
   const M=currentMonthIdx, A=CURRENT_YEAR;
   const mesDefault=A+'-'+String(M+1).padStart(2,'0');
   
-  // Si hay un select en pantalla, leer su valor; si no, usar el guardado o el mes actual
-  const selEl=document.getElementById('mes-tarjeta');
-  if(selEl) mesTarjetaSeleccionado=selEl.value;
+  // Si hay selects en pantalla, leer sus valores
+  const selMes=document.getElementById('mes-tarjeta');
+  const selTipo=document.getElementById('tipo-tarjeta');
+  if(selMes) mesTarjetaSeleccionado=selMes.value;
+  if(selTipo) tipoTarjetaSeleccionado=selTipo.value;
   if(!mesTarjetaSeleccionado) mesTarjetaSeleccionado=mesDefault;
   const mesKey=mesTarjetaSeleccionado;
 
@@ -1434,7 +1440,7 @@ function renderTarjetas(){
     {v:'visa-galicia',l:'Visa Galicia'},
     {v:'master-galicia',l:'Master Galicia'},
     {v:'visa-patagonia',l:'Visa Patagonia'}
-  ].map(o=>'<option value="'+o.v+'">'+o.l+'</option>').join('');
+  ].map(o=>'<option value="'+o.v+'"'+(o.v===tipoTarjetaSeleccionado?' selected':'')+'>'+o.l+'</option>').join('');
 
   // Selector de mes
   const mesOpts=Array.from({length:12},(_,m)=>{
@@ -1448,7 +1454,7 @@ function renderTarjetas(){
     +'<p style="font-size:12px;color:#999;margin:8px 0">Seleccioná tarjeta, mes y cargá el PDF del resumen.</p>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">'
       +'<div><label style="font-size:11px;color:#999">Tipo de tarjeta:</label>'
-      +'<select id="tipo-tarjeta" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px">'
+      +'<select id="tipo-tarjeta" onchange="tipoTarjetaSeleccionado=this.value;renderTarjetas()" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px">'
       +tipoOpts+'</select></div>'
       +'<div><label style="font-size:11px;color:#999">Mes:</label>'
       +'<select id="mes-tarjeta" onchange="cambiarMesTarjeta(this.value)" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px">'
@@ -1461,12 +1467,17 @@ function renderTarjetas(){
       +'<button onclick="document.getElementById(\'pdf-debug\').click()" style="background:#333;border-color:#444;color:#aaa;font-size:11px;padding:5px 10px">🔍 Debug</button>'
     +'</div></div>';
 
-  const tarjMes=tarjetasPorMes[mesKey]?Object.values(tarjetasPorMes[mesKey]):[];
+  const tarjMesObj=tarjetasPorMes[mesKey]||{};
+  // Mostrar solo la tarjeta del tipo seleccionado en este mes
+  const tarjMesEntries=Object.entries(tarjMesObj).filter(function(e){
+    return e[1].tipo===tipoTarjetaSeleccionado;
+  });
 
-  if(tarjMes.length===0){
+  if(tarjMesEntries.length===0){
     html+='<div class="card"><p style="color:#666;font-size:13px">Sin tarjetas cargadas para este mes.</p></div>';
   } else {
-    tarjMes.forEach(function(t){
+    tarjMesEntries.forEach(function(entry){
+      var tKey=entry[0], t=entry[1];
       const todasCuotas=t.seccionesTarjeta?t.seccionesTarjeta.reduce(function(a,s){return a.concat(s.cuotas||[]);},[]):(t.cuotas||[]);
       const unPago=t.unPago||[];
       const cuotasNuevas=todasCuotas.filter(function(c){return c.cuotaActual===1;});
@@ -1485,7 +1496,7 @@ function renderTarjetas(){
           +'<span class="card-title">💳 '+t.nombre+' <span style="font-size:11px;color:#999;font-weight:normal">('+t.tipo+')</span></span>'
           +'<div style="display:flex;gap:8px;align-items:center">'
             +'<span style="font-size:11px;color:#666">'+(t.fechaCarga||'')+'</span>'
-            +'<button class="danger" onclick="eliminarTarjetaMes(\''+mesKey+'\',\''+t.id+'\')" style="padding:3px 8px">✕</button>'
+            +'<button class="danger" onclick="eliminarTarjetaMes(\''+mesKey+'\',\''+tKey+'\')" style="padding:3px 8px">✕</button>'
           +'</div>'
         +'</div>'
         +'<div class="summary-grid" style="margin:12px 0">'
@@ -1570,11 +1581,10 @@ function cambiarMesTarjeta(mes){
   renderTarjetas();
 }
 
-function eliminarTarjetaMes(mes,id){
-  if(!tarjetasPorMes[mes])return;
-  const keys=Object.keys(tarjetasPorMes[mes]);
-  const key=keys.find(k=>k.includes(id));
-  if(!key||!confirm('¿Eliminar esta tarjeta?'))return;
+function eliminarTarjetaMes(mes,key){
+  if(!tarjetasPorMes[mes]||!tarjetasPorMes[mes][key])return;
+  const t=tarjetasPorMes[mes][key];
+  if(!confirm('¿Eliminar tarjeta "'+t.nombre+'"?'))return;
   delete tarjetasPorMes[mes][key];
   if(Object.keys(tarjetasPorMes[mes]).length===0)delete tarjetasPorMes[mes];
   guardar();
