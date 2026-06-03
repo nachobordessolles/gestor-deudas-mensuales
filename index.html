@@ -706,7 +706,7 @@ function renderFijos(){
   // Fijos normales
   const fijosNorm=fijos.filter(f=>f.frecuencia!=='semanal'&&fijoActivoEnMes(f,M,A));
   if(fijosNorm.length){
-    html+=`<div class="card"><table><thead><tr><th>✓</th><th>Nombre</th><th style="text-align:center">Frecuencia</th><th style="text-align:center">Vence</th><th style="text-align:right">Monto</th></tr></thead><tbody>`;
+    html+=`<div class="card"><table><thead><tr><th>✓</th><th>Nombre</th><th style="text-align:center">Frecuencia</th><th style="text-align:center">Vence</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>`;
     fijosNorm.forEach(f=>{
       const paid=isPagado(f.id,M,A),cat=getCatById(f.categoriaId);
       html+=`<tr class="${paid?'paid':''}">
@@ -715,6 +715,7 @@ function renderFijos(){
         <td style="text-align:center;font-size:11px">${FREQ_LABEL[f.frecuencia]}</td>
         <td style="text-align:center">${f.vencimiento}</td>
         <td style="text-align:right;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(f.monto)}${paid?'</s>':''}</td>
+        <td style="text-align:center">${modoLectura?'':`<button class="danger" onclick="eliminarFijo(${f.id})" style="padding:3px 8px">✕</button>`}</td>
       </tr>`;
     });
     html+=`</tbody></table></div>`;
@@ -735,7 +736,10 @@ function renderFijos(){
           <div><span class="cat-dot" style="background:${cat.color}"></span><strong>${f.nombre}</strong>
             <span style="font-size:11px;color:#999;margin-left:6px">${fmt(f.monto)}/semana · ${sems.length} semanas</span>
           </div>
-          <span class="badge badge-neg">${fmt(pendF)} pend.</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="badge badge-neg">${fmt(pendF)} pend.</span>
+            ${modoLectura?'':`<button class="danger" onclick="eliminarFijo(${f.id})" style="padding:3px 8px">✕</button>`}
+          </div>
         </div>
         <table><thead><tr><th>✓</th><th>Semana</th><th style="text-align:right">Fecha</th><th style="text-align:right">Monto</th></tr></thead><tbody>`;
       sems.forEach((fecha,i)=>{
@@ -920,7 +924,7 @@ function agregarFijo(){
   fijos.push(obj);
   guardar();renderFijos();
 }
-function eliminarFijo(id){fijos=fijos.filter(x=>x.id!==id);guardar();renderFijos();}
+function eliminarFijo(id){const f=fijos.find(x=>x.id===id);if(!confirm(`¿Eliminar el gasto fijo "${f?f.nombre:''}"?`))return;fijos=fijos.filter(x=>x.id!==id);guardar();renderFijos();}
 function eliminarDeuda(id){deudas=deudas.filter(x=>x.id!==id);guardar();renderLista();}
 function exportarMes(){
   const M=currentMonthIdx,A=CURRENT_YEAR;
