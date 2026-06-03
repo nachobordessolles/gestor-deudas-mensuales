@@ -1125,8 +1125,7 @@ function extraerCuotasDelPDF(texto,nombre){
 
   // Parsear todas las líneas buscando consumos
   const cuotaPatron=/([A-Z0-9*]+\*[^\s]+)\s+Cuota\s+(\d+)\/(\d+)\s+([\d.]+,\d{2})/g;
-  const unPagoPatron=/([A-Z0-9*]+\*[^\s]+|[A-Z][A-Z\s]+)\s+([\d.]+,\d{2})(?!\s*-)/g;
-
+  
   const todosCuotas=[];
   const todosUnPago=[];
 
@@ -1144,21 +1143,32 @@ function extraerCuotasDelPDF(texto,nombre){
     });
   }
 
-  // Extraer consumos en 1 pago (no tienen "Cuota X/Y")
-  // Buscar líneas con monto pero sin "Cuota"
-  const linesUnPago=texto.match(/(?:CHANGO MAS|VITAL SUPER|EDESUR|PARADOR|GALICIA SEGURO|MATAFUEGOS|[A-Z]{4,}[\s]+[A-Z]*)\s+[\d.]+,\d{2}(?!\s*-)/g)||[];
-  linesUnPago.forEach(l=>{
-    const mMatch=l.match(/([\d.]+,\d{2})$/);
-    if(!mMatch)return;
-    const monto=parseFloat(mMatch[1].replace(/\./g,'').replace(',','.'));
-    if(isNaN(monto)||monto<=0||monto>500000)return;
-    const desc=l.replace(mMatch[1],'').trim().substring(0,30);
-    if(desc.length<3)return;
-    todosUnPago.push({descripcion:desc,monto});
-  });
+  // Extraer consumos en 1 pago — buscar montos que NO sean "Cuota X/Y"
+  // Patrones: CHANGO MAS, VITAL, EDESUR, PARADOR, GALICIA SEGURO, MATAFUEGOS, etc.
+  const unPagoPatron=/(?:CHANGO\s+MAS|VITAL\s+SUPER|EDESUR|PARADOR|GALICIA\s+SEGURO|MATAFUEGOS|MERCADOLIBRE|[A-Z]{4,}\s+[A-Z]*)\s+([\d.]+,\d{2})(?!\s*-)/g;
+  let um;
+  while((um=unPagoPatron.exec(texto))!==null){
+    // Verificar que NO sea parte de "Tarjeta XXXX Total Consumos"
+    const contexto=texto.substring(Math.max(0,um.index-50),um.index+50);
+    if(/Total\s+Consumos/i.test(contexto))continue;
+    
+    const monto=parseFloat(um[1].replace(/\./g,'').replace(',','.'));
+    if(isNaN(monto)||monto<=0||monto>500000)continue;
+    
+    // Extraer descripción (todo lo anterior al monto)
+    const linea=texto.substring(Math.max(0,um.index-100),um.index);
+    const desc=linea.split('\n').pop().replace(/^\s+/,'').replace(/\s+$/,'').substring(0,35);
+    if(desc.length<3)continue;
+    
+    todosUnPago.push({descripcion:desc.trim(),monto});
+  }
+
+  if(todosCuotas.length===0&&todosUnPago.length===0){
+    alert('No se encontraron consumos en el PDF');return;
+  }
 
   // Asignar sección de tarjeta a cada cuota según posición
-  function getSecccion(pos){
+  function getSeccion(pos){
     if(secciones.length===0)return{numero:'???',titular:'Desconocido'};
     let sec=secciones[0];
     for(const s of secciones){if(s.posicion<=pos)sec=s;}
@@ -1168,15 +1178,11 @@ function extraerCuotasDelPDF(texto,nombre){
   // Agrupar cuotas por número de tarjeta
   const porTarjeta={};
   todosCuotas.forEach(c=>{
-    const sec=getSecccion(c.posicion);
+    const sec=getSeccion(c.posicion);
     const key=sec.numero;
     if(!porTarjeta[key])porTarjeta[key]={numero:sec.numero,titular:sec.titular,cuotas:[]};
     porTarjeta[key].cuotas.push(c);
   });
-
-  if(todosCuotas.length===0&&todosUnPago.length===0){
-    alert('No se encontraron consumos en el PDF');return;
-  }
 
   const tarjeta={
     id:Date.now(),
@@ -1226,9 +1232,9 @@ function renderTarjetas(){
 
         <div class="summary-grid" style="margin:12px 0">
           <div class="metric"><div class="metric-label">Total mes</div><div class="metric-value neg">${fmt(totalGeneral)}</div></div>
-          <div class="metric"><div class="metric-label">En cuotas</div><div class="metric-value">${fmt(totalCuotas)}</div></div>
+          <div class="metric"><div class="metric-label">Nuevas (${cuotasNuevas.length})</div><div class="metric-value">${fmt(totalNuevas)}</div></div>
           <div class="metric"><div class="metric-label">1 pago</div><div class="metric-value neg">${fmt(totalUnPago)}</div></div>
-          <div class="metric"><div class="metric-label">Finalizan</div><div class="metric-value pos">${fmt(totalUltimas)}</div></div>
+          <div class="metric"><div class="metric-label">Finalizan (${cuotasUltimas.length})</div><div class="metric-value pos">${fmt(totalUltimas)}</div></div>
         </div>`;
 
       // ── Secciones por tarjeta ──
