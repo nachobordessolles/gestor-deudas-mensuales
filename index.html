@@ -542,6 +542,38 @@ function renderResumen(){
     });
     html+=`<tr class="total-row"><td colspan="2"></td><td style="text-align:right">Pend:</td><td style="text-align:right;color:#f88">-${fmt(fp)}</td></tr></tbody></table></div>`;
   }
+  
+  // Fijos semanales
+  const fijosSem=fijos.filter(f=>f.frecuencia==='semanal');
+  if(fijosSem.length){
+    html+=`<div class="section-divider">Gastos semanales este mes</div><div class="card">
+    <table><thead><tr><th style="width:8%"></th><th>Gasto</th><th style="width:20%;text-align:right">Semana</th><th style="width:25%;text-align:right">Monto</th></tr></thead><tbody>`;
+    const DIAS=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    fijosSem.forEach(f=>{
+      const cat=getCatById(f.categoriaId);
+      const sems=getSemanasDelMes(f,M,A);
+      const pag=sems.filter((_,i)=>isSemPagada(f.id,M,A,i)).length;
+      const total=sems.length*f.monto;
+      html+=`<tr>
+        <td style="text-align:center">-</td>
+        <td><span class="cat-dot" style="background:${cat.color}"></span>${f.nombre}</td>
+        <td style="text-align:right;font-size:11px">${pag}/${sems.length} pagadas</td>
+        <td style="text-align:right;color:#f88">${fmt(total)}</td>
+      </tr>`;
+      sems.forEach((fecha,i)=>{
+        const paid=isSemPagada(f.id,M,A,i);
+        const fechaStr=fecha.getDate()+'/'+(fecha.getMonth()+1);
+        html+=`<tr class="${paid?'paid':''}" style="background:#1a1a1a">
+          <td style="text-align:center"><input type="checkbox" ${paid?'checked':''} onchange="toggleSemana(${f.id},${M},${A},${i})"></td>
+          <td style="padding-left:20px;font-size:11px">Semana ${i+1}</td>
+          <td style="text-align:right;font-size:11px;color:#999">${DIAS[fecha.getDay()]} ${fechaStr}</td>
+          <td style="text-align:right;font-size:12px;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(f.monto)}${paid?'</s>':''}</td>
+        </tr>`;
+      });
+    });
+    html+=`</tbody></table></div>`;
+  }
+
   html+=`<div class="grand-total">
     <strong>${MONTHS[M]} ${A}</strong><br>
     Cuotas: ${fmt(td)} | Fijos: ${fmt(tf)} | <strong>Total: ${fmt(tg)}</strong>
