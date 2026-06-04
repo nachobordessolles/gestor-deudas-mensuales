@@ -471,7 +471,18 @@ function guardar(){
 function renderResumen(){
   const M=currentMonthIdx,A=CURRENT_YEAR;
   const personas=getPersonas();
-  const td=getTotalDeudaMes(M,A),tf=getTotalFijosMes(M,A),fp=getTotalFijosPend(M,A),tg=td+tf;
+  const td=getTotalDeudaMes(M,A),tf=getTotalFijosMes(M,A),fp=getTotalFijosPend(M,A);
+
+  // Calcular total tarjetas del mes
+  const mesKeyT=A+'-'+String(M+1).padStart(2,'0');
+  const tarjMesObj=tarjetasPorMes[mesKeyT]||{};
+  const tt=Object.values(tarjMesObj).reduce((s,t)=>{
+    const cuotas=(t.seccionesTarjeta||[]).reduce((a,sec)=>a+(sec.cuotas||[]).reduce((b,c)=>b+c.monto,0),0);
+    const unPago=(t.unPago||[]).reduce((a,c)=>a+c.monto,0);
+    const bonifs=(t.bonificaciones||[]).reduce((a,c)=>a+c.monto,0);
+    return s+cuotas+unPago-bonifs;
+  },0);
+  const tg=td+tf+tt;
   const fijosAct=fijos.filter(f=>f.frecuencia!=='semanal'&&fijoActivoEnMes(f,M,A));
 
   // Alertas vencimiento
@@ -504,6 +515,7 @@ function renderResumen(){
     <div class="metric"><div class="metric-label">Cuotas</div><div class="metric-value ${td<0?'neg':'pos'}">${td<0?'-':''}${fmt(td)}</div></div>
     <div class="metric"><div class="metric-label">Fijos</div><div class="metric-value neg">-${fmt(tf)}</div></div>
     <div class="metric"><div class="metric-label">Pendientes</div><div class="metric-value neg">-${fmt(fp)}</div></div>
+    ${tt>0?`<div class="metric"><div class="metric-label">Tarjetas</div><div class="metric-value neg">-${fmt(tt)}</div></div>`:''}
   </div>`;
   if(personas.length){
     html+=`<div class="section-divider">Cuotas por persona</div>`;
