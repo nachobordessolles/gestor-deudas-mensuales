@@ -582,12 +582,42 @@ function renderResumen(){
         </tr>`;
       });
     });
-    html+=`</tbody></table></div>`;
+  html+=`</tbody></table></div>`;
   }
 
+  // ── Sección Tarjetas ──────────────────────────────────────────────
+  const mesKey=A+'-'+String(M+1).padStart(2,'0');
+  const tarjMes=tarjetasPorMes[mesKey]?Object.entries(tarjetasPorMes[mesKey]):[];
+  
+  const TIPO_LABEL={'visa-galicia-mas':'Visa Galicia Más','visa-galicia':'Visa Galicia','master-galicia':'Master Galicia','visa-patagonia':'Visa Patagonia'};
+  let totalTarjetas=0;
+
+  if(tarjMes.length>0){
+    html+=`<div class="section-divider">Tarjetas de crédito</div><div class="card">
+    <table><thead><tr><th style="width:8%"></th><th>Tarjeta</th><th style="text-align:right;width:30%">Total a pagar</th></tr></thead><tbody>`;
+    tarjMes.forEach(([key,t])=>{
+      const todasCuotas=t.seccionesTarjeta?t.seccionesTarjeta.reduce((a,s)=>a.concat(s.cuotas||[]),[]):(t.cuotas||[]);
+      const totalCuotas=todasCuotas.reduce((s,c)=>s+c.monto,0);
+      const totalUnPago=(t.unPago||[]).reduce((s,c)=>s+c.monto,0);
+      const totalBonifs=(t.bonificaciones||[]).reduce((s,c)=>s+c.monto,0);
+      const totalT=totalCuotas+totalUnPago-totalBonifs;
+      totalTarjetas+=totalT;
+      const paid=isPagado('tarjeta-'+key,M,A);
+      html+=`<tr class="${paid?'paid':''}">
+        <td style="text-align:center"><input type="checkbox" ${paid?'checked':''} onchange="togglePago('tarjeta-${key}',${M},${A})"></td>
+        <td style="font-size:13px">${TIPO_LABEL[t.tipo]||t.nombre}</td>
+        <td style="text-align:right;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(totalT)}${paid?'</s>':''}</td>
+      </tr>`;
+    });
+    html+=`<tr class="total-row"><td colspan="2" style="text-align:right">Total tarjetas:</td>
+      <td style="text-align:right;color:#f88">${fmt(totalTarjetas)}</td>
+    </tr></tbody></table></div>`;
+  }
+
+  const tg2=tg+totalTarjetas;
   html+=`<div class="grand-total">
     <strong>${MONTHS[M]} ${A}</strong><br>
-    Cuotas: ${fmt(td)} | Fijos: ${fmt(tf)} | <strong>Total: ${fmt(tg)}</strong>
+    Cuotas: ${fmt(td)} | Fijos: ${fmt(tf)}${totalTarjetas>0?' | Tarjetas: '+fmt(totalTarjetas):''} | <strong>Total: ${fmt(tg2)}</strong>
   </div>`;
   document.getElementById('view-resumen').innerHTML=html;
   actualizarBadgeFijos();
@@ -1129,7 +1159,8 @@ async function procesarPDF(file){
 }
 
 function esMonto(s){return /^\d{1,3}(\.\d{3})*,\d{2}$/.test(s);}
-function parseMonto(s){return parseFloat(s.replace(/\./g,'').replace(',','.'));}
+function esMontoNeg(s){return /^\d{1,3}(\.\d{3})*,\d{2}-$/.test(s)||/^-\d{1,3}(\.\d{3})*,\d{2}$/.test(s);}
+function parseMonto(s){return parseFloat(s.replace(/\./g,'').replace(',','.').replace(/-$/,'').replace(/^-/,''));}
 function esFecha(s){return /^\d{2}\.\d{2}\.\d{2}$/.test(s);}
 function esComprobante(s){return /^\d{5,7}[K*]?$/.test(s);}
 function esMontoUSD(s){return /^\d{1,3}(\.\d{3})*,\d{2}$/.test(s)||/^\d+,\d{2}$/.test(s);}
@@ -1278,7 +1309,7 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
       let montoUSDVal=0;
 
       while(i<items.length){
-        if(esMonto(items[i])||/^\d{1,3}(\.\d{3})*,\d{2}-$/.test(items[i]))break;
+        if(esMonto(items[i])||esMontoNeg(items[i]))break;
         if(esFecha(items[i])||items[i]==='_')break;
         // Detectar USD como item separado: [USD] [800,66]
         if(items[i]==='USD'){
@@ -1339,9 +1370,9 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
         } else {
           unPago.push({descripcion:desc,monto,posicion:posActual});
         }
-      } else if(i<items.length&&/^\d{1,3}(\.\d{3})*,\d{2}-$/.test(items[i])){
+      } else if(i<items.length&&esMontoNeg(items[i])){
         // Monto negativo = bonificación
-        const monto=parseMonto(items[i].replace(/-$/,''));
+        const monto=parseMonto(items[i]);
         i++;
         if(monto>0&&desc.length>=2&&!esDescIgnorar(desc)){
           bonificaciones.push({descripcion:desc,monto,posicion:posActual});
