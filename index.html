@@ -1122,49 +1122,6 @@ async function debugPDF(file){
   reader.readAsArrayBuffer(file);
 }
 
-async function procesarPDFConTipo(file){
-  const tipoEl=document.getElementById('tipo-tarjeta');
-  const mesEl=document.getElementById('mes-tarjeta');
-  if(!tipoEl||!mesEl){alert('Error: no se encontraron los selectores. Recargá la página.');return;}
-  const tipo=tipoEl.value;
-  const mes=mesEl.value;
-  
-  if(!tipo||!mes){alert('Seleccioná tarjeta y mes');return;}
-  if(!file){alert('No se seleccionó ningún archivo');return;}
-  
-  const reader=new FileReader();
-  reader.onerror=()=>alert('Error leyendo el archivo');
-  reader.onload=async e=>{
-    try{
-      if(typeof pdfjsLib==='undefined'){
-        alert('La librería de PDF no se cargó. Verificá tu conexión a internet y recargá la página.');
-        return;
-      }
-      const pdfData=new Uint8Array(e.target.result);
-      const pdf=await pdfjsLib.getDocument({data:pdfData}).promise;
-      const items=[];
-      for(let i=1;i<=pdf.numPages;i++){
-        const page=await pdf.getPage(i);
-        const content=await page.getTextContent();
-        content.items.forEach(it=>{
-          const s=it.str.replace(/\s+/g,' ').trim();
-          if(s)items.push(s);
-        });
-      }
-      if(items.length===0){alert('El PDF no contiene texto legible');return;}
-      
-      if(tipo==='master-galicia'){
-        extraerMasterGalicia(items,file.name,mes);
-      } else {
-        extraerCuotasDelPDF(items,file.name,tipo,mes);
-      }
-    }catch(err){
-      alert('Error procesando PDF: '+err.message+'\n\nProbá recargando la página.');
-      console.error(err);
-    }
-  };
-  reader.readAsArrayBuffer(file);
-}
 
 async function procesarPDF(file){
   // Versión antigua - mantener por compatibilidad
@@ -1293,6 +1250,7 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
   // Paso 2: parsear transacciones con su posición en el array
   const cuotas=[];
   const unPago=[];
+  const bonificaciones=[];
 
   // getSeccion: el marcador está AL FINAL de su sección
   // item pertenece al PRIMER marcador cuya posición es MAYOR a la del item
@@ -1381,6 +1339,13 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
         } else {
           unPago.push({descripcion:desc,monto,posicion:posActual});
         }
+      } else if(i<items.length&&/^\d{1,3}(\.\d{3})*,\d{2}-$/.test(items[i])){
+        // Monto negativo = bonificación
+        const monto=parseMonto(items[i].replace(/-$/,''));
+        i++;
+        if(monto>0&&desc.length>=2&&!esDescIgnorar(desc)){
+          bonificaciones.push({descripcion:desc,monto,posicion:posActual});
+        }
       }
       continue;
     }
@@ -1401,6 +1366,7 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
   });
 
   const unPagoAgrupado=unPago.map(c=>({...c,seccion:getSeccion(c.posicion).numero}));
+  const bonificacionesAgrupadas=bonificaciones.map(c=>({...c,seccion:getSeccion(c.posicion).numero}));
 
   const tarjeta={
     id:Date.now(),
@@ -1408,6 +1374,7 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
     tipo:tipo,
     seccionesTarjeta:Object.values(porTarjeta),
     unPago:unPagoAgrupado,
+    bonificaciones:bonificacionesAgrupadas,
     fechaCarga:new Date().toLocaleDateString('es-AR')
   };
   
@@ -1418,7 +1385,8 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
   
   guardar();
   renderTarjetas();
-  alert(`✓ ${cuotas.length} cuotas y ${unPago.length} consumos en 1 pago cargados para ${mes}`);
+  const bMsg=bonificacionesAgrupadas.length>0?' y '+bonificacionesAgrupadas.length+' bonificaciones':'';
+  alert('✓ '+cuotas.length+' cuotas, '+unPago.length+' consumos en 1 pago'+bMsg+' cargados');
 }
 
 
@@ -1454,11 +1422,15 @@ function renderTarjetas(){
     +'<p style="font-size:12px;color:#999;margin:8px 0">Seleccioná tarjeta, mes y cargá el PDF del resumen.</p>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">'
       +'<div><label style="font-size:11px;color:#999">Tipo de tarjeta:</label>'
-      +'<select id="tipo-tarjeta" onchange="tipoTarjetaSeleccionado=this.value;renderTarjetas()" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px">'
+      +'<select id="tipo-tarjeta" onchange="tipoTarjetaSeleccionado=this.value;togglePassRow();renderTarjetas()" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px">'
       +tipoOpts+'</select></div>'
       +'<div><label style="font-size:11px;color:#999">Mes:</label>'
       +'<select id="mes-tarjeta" onchange="cambiarMesTarjeta(this.value)" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px">'
       +mesOpts+'</select></div>'
+    +'</div>'
+    +'<div id="pass-row" style="'+(tipoTarjetaSeleccionado==='visa-patagonia'?'':'display:none;')+'margin-bottom:8px">'
+      +'<label style="font-size:11px;color:#999">Contraseña del PDF:</label>'
+      +'<input type="password" id="pdf-password" value="'+(tipoTarjetaSeleccionado==='visa-patagonia'?'32151766':'')+'" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px;box-sizing:border-box">'
     +'</div>'
     +'<div style="display:flex;gap:8px">'
       +'<input type="file" id="pdf-upload" accept=".pdf" onchange="procesarPDFConTipo(this.files[0])" style="display:none">'
@@ -1480,13 +1452,15 @@ function renderTarjetas(){
       var tKey=entry[0], t=entry[1];
       const todasCuotas=t.seccionesTarjeta?t.seccionesTarjeta.reduce(function(a,s){return a.concat(s.cuotas||[]);},[]):(t.cuotas||[]);
       const unPago=t.unPago||[];
+      const bonifs=t.bonificaciones||[];
       const cuotasNuevas=todasCuotas.filter(function(c){return c.cuotaActual===1;});
       const cuotasUltimas=todasCuotas.filter(function(c){return c.cuotaActual===c.cuotaTotal&&c.cuotaTotal>1;});
       const totalNuevas=cuotasNuevas.reduce(function(s,c){return s+c.monto;},0);
       const totalUltimas=cuotasUltimas.reduce(function(s,c){return s+c.monto;},0);
       const totalCuotas=todasCuotas.reduce(function(s,c){return s+c.monto;},0);
       const totalUnPago=unPago.reduce(function(s,c){return s+c.monto;},0);
-      const totalGeneral=totalCuotas+totalUnPago;
+      const totalBonifs=bonifs.reduce(function(s,c){return s+c.monto;},0);
+      const totalGeneral=totalCuotas+totalUnPago-totalBonifs;
 
       const unPagoUSD=unPago.filter(function(c){return c.montoUSD;});
       const totalUSD=unPagoUSD.reduce(function(s,c){return s+c.monto;},0);
@@ -1500,10 +1474,11 @@ function renderTarjetas(){
           +'</div>'
         +'</div>'
         +'<div class="summary-grid" style="margin:12px 0">'
-          +'<div class="metric"><div class="metric-label">Total mes</div><div class="metric-value neg">'+fmt(totalGeneral)+'</div></div>'
+          +'<div class="metric"><div class="metric-label">Total a pagar</div><div class="metric-value neg">'+fmt(totalGeneral)+'</div></div>'
           +'<div class="metric"><div class="metric-label">Nuevas ('+cuotasNuevas.length+')</div><div class="metric-value">'+fmt(totalNuevas)+'</div></div>'
           +'<div class="metric"><div class="metric-label">1 pago</div><div class="metric-value neg">'+fmt(totalUnPago)+'</div></div>'
           +'<div class="metric"><div class="metric-label">Finalizan ('+cuotasUltimas.length+')</div><div class="metric-value pos">'+fmt(totalUltimas)+'</div></div>'
+          +(totalBonifs>0?'<div class="metric"><div class="metric-label">Bonificaciones</div><div class="metric-value pos">-'+fmt(totalBonifs)+'</div></div>':'')
           +(totalUSD>0?'<div class="metric"><div class="metric-label">Total USD</div><div class="metric-value" style="color:#fa0">U$S '+totalUSD.toFixed(2)+'</div></div>':'')
         +'</div>';
 
@@ -1568,6 +1543,27 @@ function renderTarjetas(){
         +'</tr></tbody></table></div>';
       }
 
+      // Sección bonificaciones
+      if(bonifs.length>0){
+        html+='<div class="section-divider">🎁 Bonificaciones</div>'
+          +'<div class="card" style="padding:8px;margin-bottom:8px">'
+          +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+          +'<thead><tr>'
+            +'<th style="text-align:left;padding:6px 8px;color:#999">Descripción</th>'
+            +'<th style="text-align:right;padding:6px 8px;color:#999">Monto</th>'
+          +'</tr></thead><tbody>';
+        bonifs.forEach(function(c){
+          html+='<tr style="border-top:1px solid #333">'
+            +'<td style="padding:6px 8px">'+c.descripcion+'</td>'
+            +'<td style="text-align:right;padding:6px 8px;color:#6f8">-'+fmt(c.monto)+'</td>'
+          +'</tr>';
+        });
+        html+='<tr style="border-top:1px solid #444;background:#1a1a1a">'
+          +'<td style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Total bonificaciones:</td>'
+          +'<td style="text-align:right;padding:6px 8px;font-weight:500;color:#6f8">-'+fmt(totalBonifs)+'</td>'
+        +'</tr></tbody></table></div>';
+      }
+
       html+='</div>';
     });
   }
@@ -1576,11 +1572,70 @@ function renderTarjetas(){
 }
 
 
+function togglePassRow(){
+  const row=document.getElementById('pass-row');
+  const passEl=document.getElementById('pdf-password');
+  if(!row)return;
+  if(tipoTarjetaSeleccionado==='visa-patagonia'){
+    row.style.display='block';
+    if(passEl&&!passEl.value)passEl.value='32151766';
+  } else {
+    row.style.display='none';
+  }
+}
+
 function cambiarMesTarjeta(mes){
   mesTarjetaSeleccionado=mes;
   renderTarjetas();
 }
 
+async function procesarPDFConTipo(file){
+  const tipoEl=document.getElementById('tipo-tarjeta');
+  const mesEl=document.getElementById('mes-tarjeta');
+  const passEl=document.getElementById('pdf-password');
+  if(!tipoEl||!mesEl){alert('Error: recargá la página.');return;}
+  const tipo=tipoEl.value;
+  const mes=mesEl.value;
+  // Para Visa Patagonia, usar siempre la clave por defecto si el campo está vacío
+  let password=passEl?passEl.value.trim():'';
+  if(!password&&tipo==='visa-patagonia') password='32151766';
+  if(!tipo||!mes){alert('Seleccioná tarjeta y mes');return;}
+  if(!file){alert('No se seleccionó ningún archivo');return;}
+  const reader=new FileReader();
+  reader.onerror=()=>alert('Error leyendo el archivo');
+  reader.onload=async e=>{
+    try{
+      if(typeof pdfjsLib==='undefined'){alert('La librería de PDF no se cargó. Verificá tu conexión y recargá la página.');return;}
+      const pdfData=new Uint8Array(e.target.result);
+      const loadParams={data:pdfData};
+      if(password)loadParams.password=password;
+      let pdf;
+      try{
+        pdf=await pdfjsLib.getDocument(loadParams).promise;
+      }catch(err){
+        if(err.name==='PasswordException'||err.message.toLowerCase().includes('password')){
+          const pass=prompt('El PDF está protegido. Ingresá la contraseña:',(passEl?passEl.value:''));
+          if(!pass)return;
+          pdf=await pdfjsLib.getDocument({data:pdfData,password:pass}).promise;
+        } else { throw err; }
+      }
+      const items=[];
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);
+        const content=await page.getTextContent();
+        content.items.forEach(it=>{const s=it.str.replace(/\s+/g,' ').trim();if(s)items.push(s);});
+      }
+      if(items.length===0){alert('El PDF no contiene texto legible');return;}
+      if(tipo==='master-galicia'){extraerMasterGalicia(items,file.name,mes);}
+      else{extraerCuotasDelPDF(items,file.name,tipo,mes);}
+    }catch(err){alert('Error procesando PDF: '+err.message);console.error(err);}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+
+
+// ── Auth ─────────────────────────────────────────────────────────────
 function eliminarTarjetaMes(mes,key){
   if(!tarjetasPorMes[mes]||!tarjetasPorMes[mes][key])return;
   const t=tarjetasPorMes[mes][key];
