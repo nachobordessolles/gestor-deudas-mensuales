@@ -473,6 +473,11 @@ function renderResumen(){
   const personas=getPersonas();
   const td=getTotalDeudaMes(M,A),tf=getTotalFijosMes(M,A),fp=getTotalFijosPend(M,A);
 
+  // td positivo = me deben (ingreso, resta del total a pagar)
+  // td negativo = yo debo (egreso, suma al total)
+  const tdEgreso=Math.max(0,-td);   // cuotas que YO pago
+  const tdIngreso=Math.max(0,td);   // cuotas que ME pagan
+
   // Calcular total tarjetas del mes
   const mesKeyT=A+'-'+String(M+1).padStart(2,'0');
   const tarjMesObj=tarjetasPorMes[mesKeyT]||{};
@@ -482,7 +487,7 @@ function renderResumen(){
     const bonifs=(t.bonificaciones||[]).reduce((a,c)=>a+c.monto,0);
     return s+cuotas+unPago-bonifs;
   },0);
-  const tg=td+tf+tt;
+  const tg=tdEgreso+tf+tt-tdIngreso;
   const fijosAct=fijos.filter(f=>f.frecuencia!=='semanal'&&fijoActivoEnMes(f,M,A));
 
   // Alertas vencimiento
@@ -511,8 +516,9 @@ function renderResumen(){
     <button onclick="changeMonth(1)">→</button>
   </div>
   <div class="summary-grid">
-    <div class="metric"><div class="metric-label">Total mes</div><div class="metric-value">${fmt(tg)}</div></div>
-    <div class="metric"><div class="metric-label">Cuotas</div><div class="metric-value ${td<0?'neg':'pos'}">${td<0?'-':''}${fmt(td)}</div></div>
+    <div class="metric"><div class="metric-label">Total neto</div><div class="metric-value ${tg<0?'pos':'neg'}">${tg<0?'+':'-'}${fmt(Math.abs(tg))}</div></div>
+    ${tdIngreso>0?`<div class="metric"><div class="metric-label">Ingresos</div><div class="metric-value pos">+${fmt(tdIngreso)}</div></div>`:''}
+    ${tdEgreso>0?`<div class="metric"><div class="metric-label">Cuotas a pagar</div><div class="metric-value neg">-${fmt(tdEgreso)}</div></div>`:''}
     <div class="metric"><div class="metric-label">Fijos</div><div class="metric-value neg">-${fmt(tf)}</div></div>
     <div class="metric"><div class="metric-label">Pendientes</div><div class="metric-value neg">-${fmt(fp)}</div></div>
     ${tt>0?`<div class="metric"><div class="metric-label">Tarjetas</div><div class="metric-value neg">-${fmt(tt)}</div></div>`:''}
@@ -626,10 +632,11 @@ function renderResumen(){
     </tr></tbody></table></div>`;
   }
 
-  const tg2=tg+totalTarjetas;
+  const tg2=tdEgreso+tf+tt-tdIngreso;
   html+=`<div class="grand-total">
     <strong>${MONTHS[M]} ${A}</strong><br>
-    Cuotas: ${fmt(td)} | Fijos: ${fmt(tf)}${totalTarjetas>0?' | Tarjetas: '+fmt(totalTarjetas):''} | <strong>Total: ${fmt(tg2)}</strong>
+    ${tdIngreso>0?'Ingresos: +'+fmt(tdIngreso)+' | ':''}${tdEgreso>0?'Cuotas: -'+fmt(tdEgreso)+' | ':''}Fijos: -${fmt(tf)}${tt>0?' | Tarjetas: -'+fmt(tt):''}
+    <br><strong>Total neto: ${tg2<0?'+':'-'}${fmt(Math.abs(tg2))}</strong>
   </div>`;
   document.getElementById('view-resumen').innerHTML=html;
   actualizarBadgeFijos();
