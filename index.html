@@ -413,21 +413,22 @@ function renderResumen(){
   const tfNext=getTotalFijosMes(Mnext,Anext);
   const tdNextEgreso=Math.max(0,-tdNext);
 
-  // Cuotas de tarjetas que continúan el próximo mes
-  let ttNextVencen=0;   // última cuota el próximo mes
-  let ttNextSiguen=0;   // continúan más allá del próximo mes
+  // Cuotas de tarjetas activas el próximo mes
+  let ttNextVencen=0;   // cuotas cuya última cuota es el próximo mes
+  let ttNextSiguen=0;   // cuotas que continúan más allá del próximo mes
   Object.values(tarjetasPorMes[mesKeyT]||{}).forEach(t=>{
     (t.seccionesTarjeta||[]).forEach(sec=>{
       (sec.cuotas||[]).forEach(c=>{
         if(c.cuotaActual<c.cuotaTotal){
-          const esUltimaSiguiente=(c.cuotaActual+1===c.cuotaTotal);
-          if(esUltimaSiguiente) ttNextVencen+=c.monto;
+          // Todas las activas en el próximo mes
+          const esUltimaEnSiguiente=(c.cuotaActual+1===c.cuotaTotal);
+          if(esUltimaEnSiguiente) ttNextVencen+=c.monto;
           else ttNextSiguen+=c.monto;
         }
       });
     });
   });
-  const ttNext=ttNextVencen+ttNextSiguen;
+  const ttNext=ttNextVencen+ttNextSiguen; // total cuotas tarjeta en julio
 
   const tgNext=tdNextEgreso+tfNext+ttNext;
   const proyHtml=`<div style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:1rem;">
@@ -435,16 +436,17 @@ function renderResumen(){
       <span style="font-size:12px;color:var(--text3)">📈 Proyección ${MONTHS[Mnext]} ${Anext}</span>
       <span style="font-size:16px;font-weight:600;color:var(--neg)">${fmt(tgNext)}</span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;border-top:1px solid var(--border);padding-top:8px">
-      <div style="font-size:11px;color:var(--text3)">Cuotas y fijos
-        <div style="font-size:13px;font-weight:500;color:var(--text)">${fmt(tdNextEgreso+tfNext)}</div>
+    <div style="display:grid;grid-template-columns:repeat(${ttNext>0?3:2},1fr);gap:6px;border-top:1px solid var(--border);padding-top:8px">
+      <div style="font-size:11px;color:var(--text3)">Cuotas personas
+        <div style="font-size:13px;font-weight:500;color:var(--text)">${fmt(tdNextEgreso)}</div>
       </div>
-      <div style="font-size:11px;color:var(--text3)">Vencen en ${MONTHS[Mnext].substring(0,3)}
-        <div style="font-size:13px;font-weight:500;color:var(--warn)">${fmt(ttNextVencen)}</div>
+      <div style="font-size:11px;color:var(--text3)">Fijos
+        <div style="font-size:13px;font-weight:500;color:var(--text)">${fmt(tfNext)}</div>
       </div>
-      <div style="font-size:11px;color:var(--text3)">Siguen en ${MONTHS[Mnext].substring(0,3)}
-        <div style="font-size:13px;font-weight:500;color:var(--neg)">${fmt(ttNextSiguen)}</div>
-      </div>
+      ${ttNext>0?`<div style="font-size:11px;color:var(--text3)">Cuotas tarjetas
+        <div style="font-size:13px;font-weight:500;color:var(--neg)">${fmt(ttNext)}</div>
+        ${ttNextVencen>0?`<div style="font-size:10px;color:var(--pos);margin-top:2px">↓ ${fmt(ttNextVencen)} última cuota</div>`:''}
+      </div>`:''}
     </div>
   </div>`;
 
