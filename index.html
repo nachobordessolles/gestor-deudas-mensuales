@@ -310,6 +310,33 @@ function getSemanasDelMes(f,m,a){
 function semanaKey(id,m,a,idx){return`sw-${id}-${m}-${a}-${idx}`;}
 function isSemPagada(id,m,a,idx){return!!(pagados[semanaKey(id,m,a,idx)]);}
 function toggleSemana(id,m,a,idx){const k=semanaKey(id,m,a,idx);if(pagados[k])delete pagados[k];else pagados[k]=true;guardar();renderFijos();renderResumen();}
+// Override de monto por semana individual
+function semOverrideKey(id,m,a,idx){return`so-${id}-${m}-${a}-${idx}`;}
+function montoSemanaEfectivo(f,m,a,idx){
+  const k=semOverrideKey(f.id,m,a,idx);
+  if(f.montoOverrides&&f.montoOverrides[k]!==undefined) return f.montoOverrides[k];
+  return f.monto;
+}
+function editarMontoSemana(id,m,a,idx){
+  if(modoLectura)return;
+  const f=fijos.find(x=>x.id===id);if(!f)return;
+  const actual=montoSemanaEfectivo(f,m,a,idx);
+  const input=prompt(
+    `Monto de "${f.nombre}" — Semana ${idx+1} de ${MONTHS[m]} ${a}:\n(Base: $${Math.round(f.monto).toLocaleString('es-AR')} | Ingresá 0 si no aplica)`,
+    actual
+  );
+  if(input===null)return;
+  const nuevo=parseFloat(input.replace(',','.'));
+  if(isNaN(nuevo)||nuevo<0){alert('Monto inválido');return;}
+  if(!f.montoOverrides)f.montoOverrides={};
+  const k=semOverrideKey(id,m,a,idx);
+  if(nuevo===f.monto){
+    delete f.montoOverrides[k];
+  } else {
+    f.montoOverrides[k]=nuevo;
+  }
+  guardar();renderFijos();renderResumen();
+}
 
 function pagoKey(id,m,a){return`${id}-${m}-${a}`;}
 function isPagado(id,m,a){return!!(pagados[pagoKey(id,m,a)]);}
@@ -346,7 +373,7 @@ function editarMontoFijoMes(id){
 }
 
 function getTotalFijoMes(f,m,a){
-  if(f.frecuencia==='semanal') return getSemanasDelMes(f,m,a).length * f.monto;
+  if(f.frecuencia==='semanal') return getSemanasDelMes(f,m,a).reduce((s,_,i)=>s+montoSemanaEfectivo(f,m,a,i),0);
   if(!fijoActivoEnMes(f,m,a)) return 0;
   return montoFijoEfectivo(f,m,a);
 }
@@ -356,7 +383,7 @@ function getTotalFijosPend(m,a){
   return fijos.reduce((s,f)=>{
     if(f.frecuencia==='semanal'){
       const sems=getSemanasDelMes(f,m,a);
-      return s+sems.filter((_,i)=>!isSemPagada(f.id,m,a,i)).length*f.monto;
+      return s+sems.reduce((t,_,i)=>isSemPagada(f.id,m,a,i)?t:t+montoSemanaEfectivo(f,m,a,i),0);
     }
     return fijoActivoEnMes(f,m,a)&&!isPagado(f.id,m,a)?s+montoFijoEfectivo(f,m,a):s;
   },0);
@@ -582,11 +609,16 @@ function renderResumen(){
       sems.forEach((fecha,i)=>{
         const paid=isSemPagada(f.id,M,A,i);
         const fechaStr=fecha.getDate()+'/'+(fecha.getMonth()+1);
+        const mEfectivo=montoSemanaEfectivo(f,M,A,i);
+        const tieneOv=f.montoOverrides&&f.montoOverrides[semOverrideKey(f.id,M,A,i)]!==undefined;
         html+=`<tr class="${paid?'paid':''}" style="background:#1a1a1a">
           <td style="text-align:center"><input type="checkbox" ${paid?'checked':''} onchange="toggleSemana(${f.id},${M},${A},${i})"></td>
-          <td style="padding-left:20px;font-size:11px">Semana ${i+1}</td>
+          <td style="padding-left:20px;font-size:11px">Semana ${i+1}${tieneOv?` <span style="color:var(--warn);font-size:10px" title="Monto ajustado">✎</span>`:''}</td>
           <td style="text-align:right;font-size:11px;color:#999">${DIAS[fecha.getDay()]} ${fechaStr}</td>
-          <td style="text-align:right;font-size:12px;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(f.monto)}${paid?'</s>':''}</td>
+          <td style="text-align:right;font-size:12px;color:${paid?'#666':'#f88'}">
+            ${paid?'<s>':''}${fmt(mEfectivo)}${paid?'</s>':''}
+            ${modoLectura?'':` <button onclick="editarMontoSemana(${f.id},${M},${A},${i})" title="Ajustar monto semana ${i+1}" style="background:none;border:none;cursor:pointer;color:#666;font-size:11px;padding:0 2px;line-height:1">✎</button>`}
+          </td>
         </tr>`;
       });
     });
@@ -820,8 +852,8 @@ function renderFijos(){
       const cat=getCatById(f.categoriaId);
       const sems=getSemanasDelMes(f,M,A);
       const pagadas=sems.filter((_,i)=>isSemPagada(f.id,M,A,i)).length;
-      const totalF=sems.length*f.monto;
-      const pendF=(sems.length-pagadas)*f.monto;
+      const totalF=sems.reduce((s,_,i)=>s+montoSemanaEfectivo(f,M,A,i),0);
+      const pendF=sems.reduce((s,_,i)=>isSemPagada(f.id,M,A,i)?s:s+montoSemanaEfectivo(f,M,A,i),0);
       html+=`<div class="card">
         <div class="card-header">
           <div><span class="cat-dot" style="background:${cat.color}"></span><strong>${f.nombre}</strong>
@@ -832,15 +864,23 @@ function renderFijos(){
             ${modoLectura?'':`<button class="danger" onclick="eliminarFijo(${f.id})" style="padding:3px 8px">✕</button>`}
           </div>
         </div>
-        <table><thead><tr><th>✓</th><th>Semana</th><th style="text-align:right">Fecha</th><th style="text-align:right">Monto</th></tr></thead><tbody>`;
+        <table><thead><tr><th>✓</th><th>Semana</th><th style="text-align:right">Fecha</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>`;
       sems.forEach((fecha,i)=>{
         const paid=isSemPagada(f.id,M,A,i);
         const fechaStr=fecha.getDate()+'/'+(fecha.getMonth()+1);
+        const mEfectivo=montoSemanaEfectivo(f,M,A,i);
+        const tieneOv=f.montoOverrides&&f.montoOverrides[semOverrideKey(f.id,M,A,i)]!==undefined;
         html+=`<tr class="${paid?'paid':''}">
           <td><input type="checkbox" ${paid?'checked':''} onchange="toggleSemana(${f.id},${M},${A},${i})"></td>
-          <td>Semana ${i+1}</td>
+          <td>Semana ${i+1}${tieneOv?` <span style="color:var(--warn);font-size:10px" title="Monto ajustado">✎</span>`:''}</td>
           <td style="text-align:right;font-size:11px;color:#999">${DIAS[fecha.getDay()]} ${fechaStr}</td>
-          <td style="text-align:right;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(f.monto)}${paid?'</s>':''}</td>
+          <td style="text-align:right;color:${paid?'#666':'#f88'}">
+            ${paid?'<s>':''}${fmt(mEfectivo)}${paid?'</s>':''}
+            ${tieneOv?`<br><span style="font-size:10px;color:var(--text3)">Base: ${fmt(f.monto)}</span>`:''}
+          </td>
+          <td style="text-align:center">
+            ${modoLectura?'':` <button onclick="editarMontoSemana(${f.id},${M},${A},${i})" title="Ajustar monto semana ${i+1}" style="background:none;border:1px solid #444;cursor:pointer;color:#999;font-size:11px;padding:2px 6px;border-radius:3px">✎</button>`}
+          </td>
         </tr>`;
       });
       html+=`<tr class="total-row"><td colspan="2"></td><td style="text-align:right">Total:</td><td style="text-align:right">${fmt(totalF)}</td></tr>
