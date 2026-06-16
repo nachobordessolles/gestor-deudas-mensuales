@@ -316,9 +316,39 @@ function isPagado(id,m,a){return!!(pagados[pagoKey(id,m,a)]);}
 function togglePago(id,m,a){const k=pagoKey(id,m,a);if(pagados[k])delete pagados[k];else pagados[k]=true;guardar();renderFijos();renderResumen();}
 function getCatById(id){return categorias.find(c=>c.id===id)||{nombre:'General',color:'#888780'};}
 
+// Devuelve el monto efectivo de un fijo en un mes dado (respeta override si existe)
+function montoFijoEfectivo(f,m,a){
+  const key=`${a}-${String(m+1).padStart(2,'0')}`;
+  if(f.montoOverrides&&f.montoOverrides[key]!==undefined) return f.montoOverrides[key];
+  return f.monto;
+}
+
+function editarMontoFijoMes(id){
+  if(modoLectura)return;
+  const f=fijos.find(x=>x.id===id);if(!f)return;
+  const m=currentMonthIdx,a=CURRENT_YEAR;
+  const key=`${a}-${String(m+1).padStart(2,'0')}`;
+  const actual=montoFijoEfectivo(f,m,a);
+  const input=prompt(
+    `Monto de "${f.nombre}" para ${MONTHS[m]} ${a}:\n(Base: $${Math.round(f.monto).toLocaleString('es-AR')} | Ingresá 0 si no aplica este mes)`,
+    actual
+  );
+  if(input===null)return;
+  const nuevo=parseFloat(input.replace(',','.'));
+  if(isNaN(nuevo)||nuevo<0){alert('Monto inválido');return;}
+  if(!f.montoOverrides)f.montoOverrides={};
+  if(nuevo===f.monto){
+    delete f.montoOverrides[key]; // si ponés el mismo que base, limpia el override
+  } else {
+    f.montoOverrides[key]=nuevo;
+  }
+  guardar();renderFijos();renderResumen();
+}
+
 function getTotalFijoMes(f,m,a){
   if(f.frecuencia==='semanal') return getSemanasDelMes(f,m,a).length * f.monto;
-  return fijoActivoEnMes(f,m,a)?f.monto:0;
+  if(!fijoActivoEnMes(f,m,a)) return 0;
+  return montoFijoEfectivo(f,m,a);
 }
 function getTotalDeudaMes(m,a){return deudas.reduce((s,d)=>{const c=getCuotaEnMes(d,m,a);return c!==null?s+getMonto(d):s;},0);}
 function getTotalFijosMes(m,a){return fijos.reduce((s,f)=>s+getTotalFijoMes(f,m,a),0);}
@@ -328,7 +358,7 @@ function getTotalFijosPend(m,a){
       const sems=getSemanasDelMes(f,m,a);
       return s+sems.filter((_,i)=>!isSemPagada(f.id,m,a,i)).length*f.monto;
     }
-    return fijoActivoEnMes(f,m,a)&&!isPagado(f.id,m,a)?s+f.monto:s;
+    return fijoActivoEnMes(f,m,a)&&!isPagado(f.id,m,a)?s+montoFijoEfectivo(f,m,a):s;
   },0);
 }
 function catSelectOptions(sid){return categorias.map(c=>`<option value="${c.id}"${c.id===sid?' selected':''}>${c.nombre}</option>`).join('');}
@@ -516,11 +546,17 @@ function renderResumen(){
     <table><thead><tr><th style="width:8%"></th><th>Gasto</th><th style="width:20%;text-align:right">Día</th><th style="width:25%;text-align:right">Monto</th></tr></thead><tbody>`;
     fijosAct.forEach(f=>{
       const paid=isPagado(f.id,M,A),cat=getCatById(f.categoriaId);
+      const mesKey=`${A}-${String(M+1).padStart(2,'0')}`;
+      const tieneOverride=f.montoOverrides&&f.montoOverrides[mesKey]!==undefined;
+      const montoEfectivo=montoFijoEfectivo(f,M,A);
       html+=`<tr class="${paid?'paid':''}">
         <td style="text-align:center"><input type="checkbox" ${paid?'checked':''} onchange="togglePago(${f.id},${M},${A})"></td>
-        <td><span class="cat-dot" style="background:${cat.color}"></span>${f.nombre}</td>
+        <td><span class="cat-dot" style="background:${cat.color}"></span>${f.nombre}${tieneOverride?`<span style="font-size:10px;color:var(--warn);margin-left:4px" title="Monto ajustado para este mes">✎</span>`:''}</td>
         <td style="text-align:right;font-size:11px">${f.vencimiento}</td>
-        <td style="text-align:right;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(f.monto)}${paid?'</s>':''}</td>
+        <td style="text-align:right;color:${paid?'#666':'#f88'}">
+          ${paid?'<s>':''}${fmt(montoEfectivo)}${paid?'</s>':''}
+          ${modoLectura?'':` <button onclick="editarMontoFijoMes(${f.id})" title="Ajustar monto para este mes" style="background:none;border:none;cursor:pointer;color:#666;font-size:11px;padding:0 2px;line-height:1">✎</button>`}
+        </td>
       </tr>`;
     });
     html+=`<tr class="total-row"><td colspan="2"></td><td style="text-align:right">Pend:</td><td style="text-align:right;color:#f88">-${fmt(fp)}</td></tr></tbody></table></div>`;
@@ -755,13 +791,22 @@ function renderFijos(){
     html+=`<div class="card"><table><thead><tr><th>✓</th><th>Nombre</th><th style="text-align:center">Frecuencia</th><th style="text-align:center">Vence</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>`;
     fijosNorm.forEach(f=>{
       const paid=isPagado(f.id,M,A),cat=getCatById(f.categoriaId);
+      const mesKey=`${A}-${String(M+1).padStart(2,'0')}`;
+      const tieneOverride=f.montoOverrides&&f.montoOverrides[mesKey]!==undefined;
+      const montoEfectivo=montoFijoEfectivo(f,M,A);
       html+=`<tr class="${paid?'paid':''}">
         <td><input type="checkbox" ${paid?'checked':''} onchange="togglePago(${f.id},${M},${A})"></td>
         <td><span class="cat-dot" style="background:${cat.color}"></span>${f.nombre}</td>
         <td style="text-align:center;font-size:11px">${FREQ_LABEL[f.frecuencia]}</td>
         <td style="text-align:center">${f.vencimiento}</td>
-        <td style="text-align:right;color:${paid?'#666':'#f88'}">${paid?'<s>':''}${fmt(f.monto)}${paid?'</s>':''}</td>
-        <td style="text-align:center">${modoLectura?'':`<button class="danger" onclick="eliminarFijo(${f.id})" style="padding:3px 8px">✕</button>`}</td>
+        <td style="text-align:right;color:${paid?'#666':'#f88'}">
+          ${paid?'<s>':''}${fmt(montoEfectivo)}${paid?'</s>':''}
+          ${tieneOverride?`<span title="Base: ${fmt(f.monto)}" style="font-size:10px;color:var(--warn);margin-left:2px">✎</span>`:''}
+          ${tieneOverride?`<br><span style="font-size:10px;color:var(--text3)">Base: ${fmt(f.monto)}</span>`:''}
+        </td>
+        <td style="text-align:center;white-space:nowrap">
+          ${modoLectura?'':` <button onclick="editarMontoFijoMes(${f.id})" title="Ajustar monto para ${MONTHS[M]}" style="background:none;border:1px solid #444;cursor:pointer;color:#999;font-size:11px;padding:2px 6px;border-radius:3px;margin-right:4px">✎ mes</button><button class="danger" onclick="eliminarFijo(${f.id})" style="padding:3px 8px">✕</button>`}
+        </td>
       </tr>`;
     });
     html+=`</tbody></table></div>`;
