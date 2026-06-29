@@ -1276,7 +1276,34 @@ function esFechaMaster(s){
 }
 const MESES_MASTER={'Ene':0,'Feb':1,'Mar':2,'Abr':3,'May':4,'Jun':5,'Jul':6,'Ago':7,'Sep':8,'Set':8,'Oct':9,'Nov':10,'Dic':11};
 
-function extraerMasterGalicia(items,nombre,mes,proximoCierre,fechaVencimiento){
+function extraerMasterGalicia(items,nombre,mes,proximoCierreManual,fechaVencimientoManual){
+  let proximoCierre=proximoCierreManual||'';
+  let fechaVencimiento=fechaVencimientoManual||'';
+
+  // Patrón Master: formato DD-Mmm-YY (con guiones)
+  // [..., "23-Jul-26", "03-Ago-26", "PAGO MINIMO", "LÍMITES", ...]
+  //         ↑ cierre      ↑ vencimiento
+  // Buscar LÍMITES, subir: pos3=vencimiento, pos4=cierre
+  const esFechaLargaMaster = s => /^\d{2}-[A-Za-záéíóú]{3}-\d{2}$/.test(s);
+
+  if(!proximoCierre || !fechaVencimiento){
+    let idxLim = -1;
+    for(let k=0;k<items.length;k++){
+      if(/LÍM|LIM/i.test(items[k])){idxLim=k;break;}
+    }
+    if(idxLim > 0){
+      const fechasEncontradas=[];
+      for(let k=idxLim-1; k>=Math.max(0,idxLim-10); k--){
+        if(esFechaLargaMaster(items[k])) fechasEncontradas.push(items[k]);
+        if(fechasEncontradas.length>=2) break;
+      }
+      // fechasEncontradas[0] = más cercana a LÍMITES = vencimiento
+      // fechasEncontradas[1] = siguiente = cierre
+      if(!fechaVencimiento && fechasEncontradas.length>=1) fechaVencimiento=fechasEncontradas[0];
+      if(!proximoCierre && fechasEncontradas.length>=2) proximoCierre=fechasEncontradas[1];
+    }
+  }
+
   const cuotas=[];
   const unPago=[];
 
@@ -1359,7 +1386,8 @@ function extraerMasterGalicia(items,nombre,mes,proximoCierre,fechaVencimiento){
   tarjetasPorMes[mes]['master-galicia-'+tarjeta.id]=tarjeta;
   guardar();
   renderTarjetas();
-  alert('✓ '+cuotas.length+' cuotas y '+unPago.length+' consumos en 1 pago cargados');
+  const fMsg=(proximoCierre||fechaVencimiento)?`\nCierre: ${proximoCierre||'no detectado'} | Vto: ${fechaVencimiento||'no detectado'}`:'';
+  alert('✓ '+cuotas.length+' cuotas y '+unPago.length+' consumos en 1 pago cargados'+fMsg);
 }
 
 
