@@ -290,6 +290,8 @@ function getCuotaEnMes(d,m,a){
 function getPersonas(){return[...new Set(deudas.map(d=>d.persona))];}
 function getMonto(d){return d.negativo?-d.monto:d.monto;}
 function fijoActivoEnMes(f,m,a){
+  // Si el fijo está desactivado globalmente, no está activo
+  if(f.activo===false) return false;
   if(f.frecuencia==='semanal') return true; // siempre activo, se maneja por semanas
   const mesActual=(a)*12+m;const mesBase=((f.anoBase||2026))*12+f.mesBase;const o=mesActual-mesBase;return o>=0&&o%FREQ_MONTHS[f.frecuencia]===0;
 }
@@ -341,6 +343,7 @@ function editarMontoSemana(id,m,a,idx){
 function pagoKey(id,m,a){return`${id}-${m}-${a}`;}
 function isPagado(id,m,a){return!!(pagados[pagoKey(id,m,a)]);}
 function togglePago(id,m,a){const k=pagoKey(id,m,a);if(pagados[k])delete pagados[k];else pagados[k]=true;guardar();renderFijos();renderResumen();}
+function toggleFijoActivo(id){const f=fijos.find(x=>x.id===id);if(f){f.activo=f.activo===false?true:false;guardar();renderFijos();}}
 function getCatById(id){return categorias.find(c=>c.id===id)||{nombre:'General',color:'#888780'};}
 
 // Devuelve el monto efectivo de un fijo en un mes dado (respeta override si existe)
@@ -818,17 +821,23 @@ function renderFijos(){
   </div>`;
 
   // Fijos normales
-  const fijosNorm=fijos.filter(f=>f.frecuencia!=='semanal'&&fijoActivoEnMes(f,M,A));
+  const fijosNorm=fijos.filter(f=>f.frecuencia!=='semanal');
   if(fijosNorm.length){
-    html+=`<div class="card"><table><thead><tr><th>✓</th><th>Nombre</th><th style="text-align:center">Frecuencia</th><th style="text-align:center">Vence</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>`;
+    html+=`<div class="card"><table><thead><tr><th style="width:30px">✓</th><th>Nombre</th><th style="text-align:center;width:80px">Estado</th><th style="text-align:center">Frecuencia</th><th style="text-align:center">Vence</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>`;
     fijosNorm.forEach(f=>{
-      const paid=isPagado(f.id,M,A),cat=getCatById(f.categoriaId);
+      const estaActivo=f.activo!==false;
+      const seAplicaEste=fijoActivoEnMes(f,M,A);
+      const paid=seAplicaEste && isPagado(f.id,M,A),cat=getCatById(f.categoriaId);
       const mesKey=`${A}-${String(M+1).padStart(2,'0')}`;
       const tieneOverride=f.montoOverrides&&f.montoOverrides[mesKey]!==undefined;
       const montoEfectivo=montoFijoEfectivo(f,M,A);
       html+=`<tr class="${paid?'paid':''}">
-        <td><input type="checkbox" ${paid?'checked':''} onchange="togglePago(${f.id},${M},${A})"></td>
+        <td>${seAplicaEste?`<input type="checkbox" ${paid?'checked':''} onchange="togglePago(${f.id},${M},${A})">`:'-'}</td>
         <td><span class="cat-dot" style="background:${cat.color}"></span>${f.nombre}</td>
+        <td style="text-align:center;font-size:11px">
+          <input type="checkbox" ${estaActivo?'checked':''} onchange="toggleFijoActivo(${f.id})" title="Desactiva el gasto (se conserva en historial)">
+          <label style="cursor:pointer;margin-left:3px;font-size:10px">${estaActivo?'Activo':'Inactivo'}</label>
+        </td>
         <td style="text-align:center;font-size:11px">${FREQ_LABEL[f.frecuencia]}</td>
         <td style="text-align:center">${f.vencimiento}</td>
         <td style="text-align:right;color:${paid?'#666':'#f88'}">
@@ -1231,7 +1240,7 @@ function esFechaMaster(s){
 }
 const MESES_MASTER={'Ene':0,'Feb':1,'Mar':2,'Abr':3,'May':4,'Jun':5,'Jul':6,'Ago':7,'Sep':8,'Set':8,'Oct':9,'Nov':10,'Dic':11};
 
-function extraerMasterGalicia(items,nombre,mes){
+function extraerMasterGalicia(items,nombre,mes,proximoCierre,fechaVencimiento){
   const cuotas=[];
   const unPago=[];
 
@@ -1305,7 +1314,9 @@ function extraerMasterGalicia(items,nombre,mes){
     tipo:'master-galicia',
     seccionesTarjeta:[{numero:'Principal',titular:'BORDESSOLLES',cuotas:cuotas}],
     unPago:unPago,
-    fechaCarga:new Date().toLocaleDateString('es-AR')
+    fechaCarga:new Date().toLocaleDateString('es-AR'),
+    proximoCierre:proximoCierre||undefined,
+    fechaVencimiento:fechaVencimiento||undefined
   };
 
   if(!tarjetasPorMes[mes])tarjetasPorMes[mes]={};
@@ -1316,7 +1327,7 @@ function extraerMasterGalicia(items,nombre,mes){
 }
 
 
-function extraerCuotasDelPDF(items,nombre,tipo,mes){
+function extraerCuotasDelPDF(items,nombre,tipo,mes,proximoCierre,fechaVencimiento){
   // Paso 1: detectar marcadores "Tarjeta XXXX Total" que aparecen AL FINAL de cada sección
   const marcadores=[];
   for(let i=0;i<items.length;i++){
@@ -1460,7 +1471,9 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes){
     seccionesTarjeta:Object.values(porTarjeta),
     unPago:unPagoAgrupado,
     bonificaciones:bonificacionesAgrupadas,
-    fechaCarga:new Date().toLocaleDateString('es-AR')
+    fechaCarga:new Date().toLocaleDateString('es-AR'),
+    proximoCierre:proximoCierre||undefined,
+    fechaVencimiento:fechaVencimiento||undefined
   };
   
   // Guardar en tarjetasPorMes
@@ -1517,6 +1530,12 @@ function renderTarjetas(){
       +'<label style="font-size:11px;color:#999">Contraseña del PDF:</label>'
       +'<input type="password" id="pdf-password" value="'+(tipoTarjetaSeleccionado==='visa-patagonia'?'32151766':'')+'" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px;box-sizing:border-box">'
     +'</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+      +'<div><label style="font-size:11px;color:#999">Próximo cierre (ej: 23 Jul 26):</label>'
+      +'<input type="text" id="proximo-cierre" placeholder="23 Jul 26" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px;box-sizing:border-box;font-size:12px"></div>'
+      +'<div><label style="font-size:11px;color:#999">Vencimiento (ej: 06 Ago 26):</label>'
+      +'<input type="text" id="fecha-vencimiento" placeholder="06 Ago 26" style="width:100%;padding:6px;background:#222;border:1px solid #444;color:#fff;border-radius:4px;box-sizing:border-box;font-size:12px"></div>'
+    +'</div>'
     +'<div style="display:flex;gap:8px">'
       +'<input type="file" id="pdf-upload" accept=".pdf" onchange="procesarPDFConTipo(this.files[0])" style="display:none">'
       +'<input type="file" id="pdf-debug" accept=".pdf" onchange="debugPDF(this.files[0])" style="display:none">'
@@ -1552,7 +1571,15 @@ function renderTarjetas(){
 
       html+='<div class="card" style="margin-top:1rem">'
         +'<div class="card-header">'
-          +'<span class="card-title">💳 '+t.nombre+' <span style="font-size:11px;color:#999;font-weight:normal">('+t.tipo+')</span></span>'
+          +'<div>'
+            +'<span class="card-title">💳 '+t.nombre
+            +'<span style="font-size:11px;color:#999;font-weight:normal;margin-left:8px">('+t.tipo+')</span>'
+            +'</span>'
+            +'<div style="font-size:11px;color:#666;margin-top:4px">'
+              +(t.proximoCierre?'Próximo cierre: '+t.proximoCierre:'')
+              +(t.fechaVencimiento?' | Vencimiento: '+t.fechaVencimiento:'')
+            +'</div>'
+          +'</div>'
           +'<div style="display:flex;gap:8px;align-items:center">'
             +'<span style="font-size:11px;color:#666">'+(t.fechaCarga||'')+'</span>'
             +'<button class="danger" onclick="eliminarTarjetaMes(\''+mesKey+'\',\''+tKey+'\')" style="padding:3px 8px">✕</button>'
@@ -1678,6 +1705,8 @@ async function procesarPDFConTipo(file){
   const tipoEl=document.getElementById('tipo-tarjeta');
   const mesEl=document.getElementById('mes-tarjeta');
   const passEl=document.getElementById('pdf-password');
+  const proximoCierreEl=document.getElementById('proximo-cierre');
+  const fechaVencimientoEl=document.getElementById('fecha-vencimiento');
   if(!tipoEl||!mesEl){alert('Error: recargá la página.');return;}
   const tipo=tipoEl.value;
   const mes=mesEl.value;
@@ -1711,8 +1740,8 @@ async function procesarPDFConTipo(file){
         content.items.forEach(it=>{const s=it.str.replace(/\s+/g,' ').trim();if(s)items.push(s);});
       }
       if(items.length===0){alert('El PDF no contiene texto legible');return;}
-      if(tipo==='master-galicia'){extraerMasterGalicia(items,file.name,mes);}
-      else{extraerCuotasDelPDF(items,file.name,tipo,mes);}
+      if(tipo==='master-galicia'){extraerMasterGalicia(items,file.name,mes,proximoCierreEl?.value,fechaVencimientoEl?.value);}
+      else{extraerCuotasDelPDF(items,file.name,tipo,mes,proximoCierreEl?.value,fechaVencimientoEl?.value);}
     }catch(err){alert('Error procesando PDF: '+err.message);console.error(err);}
   };
   reader.readAsArrayBuffer(file);
