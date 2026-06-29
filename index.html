@@ -1393,6 +1393,11 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes,proximoCierreManual,fechaVenc
     }
 
     if(idxLim > 0){
+      // DEBUG: mostrar los 10 items antes de LIMITES en consola
+      console.log('=== DEBUG fechas tarjeta ===');
+      for(let k=idxLim-1;k>=Math.max(0,idxLim-10);k--){
+        console.log(`pos ${idxLim-k}:`, JSON.stringify(items[k]), '| esFechaLarga:', esFechaLarga(items[k]));
+      }
       const fechasEncontradas=[];
       for(let k=idxLim-1; k>=Math.max(0,idxLim-10); k--){
         if(esFechaLarga(items[k])) fechasEncontradas.push(items[k]);
