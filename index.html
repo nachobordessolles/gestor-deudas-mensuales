@@ -290,9 +290,13 @@ function getCuotaEnMes(d,m,a){
 function getPersonas(){return[...new Set(deudas.map(d=>d.persona))];}
 function getMonto(d){return d.negativo?-d.monto:d.monto;}
 function fijoActivoEnMes(f,m,a){
-  // Si el fijo está desactivado globalmente, no está activo
-  if(f.activo===false) return false;
-  if(f.frecuencia==='semanal') return true; // siempre activo, se maneja por semanas
+  // Si está desactivado, solo mostrar en meses anteriores al de desactivación
+  if(f.activo===false){
+    const mesDesact=(f.anoDesactivacion||CURRENT_YEAR)*12+(f.mesDesactivacion||CURRENT_MONTH);
+    const mesConsulta=a*12+m;
+    return mesConsulta<mesDesact; // aparece en historial (meses previos al de desactivación)
+  }
+  if(f.frecuencia==='semanal') return true;
   const mesActual=(a)*12+m;const mesBase=((f.anoBase||2026))*12+f.mesBase;const o=mesActual-mesBase;return o>=0&&o%FREQ_MONTHS[f.frecuencia]===0;
 }
 // Devuelve array de fechas (Date) de cada ocurrencia semanal en el mes m/a
@@ -343,7 +347,22 @@ function editarMontoSemana(id,m,a,idx){
 function pagoKey(id,m,a){return`${id}-${m}-${a}`;}
 function isPagado(id,m,a){return!!(pagados[pagoKey(id,m,a)]);}
 function togglePago(id,m,a){const k=pagoKey(id,m,a);if(pagados[k])delete pagados[k];else pagados[k]=true;guardar();renderFijos();renderResumen();}
-function toggleFijoActivo(id){const f=fijos.find(x=>x.id===id);if(f){f.activo=f.activo===false?true:false;guardar();renderFijos();}}
+function toggleFijoActivo(id){
+  const f=fijos.find(x=>x.id===id);
+  if(!f)return;
+  if(f.activo===false){
+    // Reactivar: limpiar mes de desactivación
+    f.activo=true;
+    delete f.mesDesactivacion;
+    delete f.anoDesactivacion;
+  } else {
+    // Desactivar: guardar el mes actual como inicio de desactivación
+    f.activo=false;
+    f.mesDesactivacion=currentMonthIdx;
+    f.anoDesactivacion=CURRENT_YEAR;
+  }
+  guardar();renderFijos();
+}
 function getCatById(id){return categorias.find(c=>c.id===id)||{nombre:'General',color:'#888780'};}
 
 // Devuelve el monto efectivo de un fijo en un mes dado (respeta override si existe)
@@ -376,19 +395,20 @@ function editarMontoFijoMes(id){
 }
 
 function getTotalFijoMes(f,m,a){
-  if(f.frecuencia==='semanal') return getSemanasDelMes(f,m,a).reduce((s,_,i)=>s+montoSemanaEfectivo(f,m,a,i),0);
   if(!fijoActivoEnMes(f,m,a)) return 0;
+  if(f.frecuencia==='semanal') return getSemanasDelMes(f,m,a).reduce((s,_,i)=>s+montoSemanaEfectivo(f,m,a,i),0);
   return montoFijoEfectivo(f,m,a);
 }
 function getTotalDeudaMes(m,a){return deudas.reduce((s,d)=>{const c=getCuotaEnMes(d,m,a);return c!==null?s+getMonto(d):s;},0);}
 function getTotalFijosMes(m,a){return fijos.reduce((s,f)=>s+getTotalFijoMes(f,m,a),0);}
 function getTotalFijosPend(m,a){
   return fijos.reduce((s,f)=>{
+    if(!fijoActivoEnMes(f,m,a)) return s;
     if(f.frecuencia==='semanal'){
       const sems=getSemanasDelMes(f,m,a);
       return s+sems.reduce((t,_,i)=>isSemPagada(f.id,m,a,i)?t:t+montoSemanaEfectivo(f,m,a,i),0);
     }
-    return fijoActivoEnMes(f,m,a)&&!isPagado(f.id,m,a)?s+montoFijoEfectivo(f,m,a):s;
+    return !isPagado(f.id,m,a)?s+montoFijoEfectivo(f,m,a):s;
   },0);
 }
 function catSelectOptions(sid){return categorias.map(c=>`<option value="${c.id}"${c.id===sid?' selected':''}>${c.nombre}</option>`).join('');}
@@ -854,46 +874,62 @@ function renderFijos(){
   }
 
   // Fijos semanales
-  const fijosSem=fijos.filter(f=>f.frecuencia==='semanal');
-  if(fijosSem.length){
+  const fijosSem=fijos.filter(f=>f.frecuencia==='semanal'&&fijoActivoEnMes(f,M,A));
+  const fijosSemInact=fijos.filter(f=>f.frecuencia==='semanal'&&f.activo===false);
+  if(fijosSem.length||fijosSemInact.length){
     html+=`<div class="section-divider">Gastos semanales</div>`;
-    fijosSem.forEach(f=>{
+    // Mostrar todos los semanales para poder activar/desactivar, pero marcar los inactivos
+    const todosSemanales=fijos.filter(f=>f.frecuencia==='semanal');
+    todosSemanales.forEach(f=>{
+      const estaActivo=f.activo!==false;
+      const seAplicaEste=fijoActivoEnMes(f,M,A);
       const cat=getCatById(f.categoriaId);
       const sems=getSemanasDelMes(f,M,A);
       const pagadas=sems.filter((_,i)=>isSemPagada(f.id,M,A,i)).length;
       const totalF=sems.reduce((s,_,i)=>s+montoSemanaEfectivo(f,M,A,i),0);
       const pendF=sems.reduce((s,_,i)=>isSemPagada(f.id,M,A,i)?s:s+montoSemanaEfectivo(f,M,A,i),0);
-      html+=`<div class="card">
+      html+=`<div class="card" style="${!estaActivo?'opacity:0.6':''}">
         <div class="card-header">
-          <div><span class="cat-dot" style="background:${cat.color}"></span><strong>${f.nombre}</strong>
-            <span style="font-size:11px;color:#999;margin-left:6px">${fmt(f.monto)}/semana · ${sems.length} semanas</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="cat-dot" style="background:${cat.color}"></span>
+            <strong>${f.nombre}</strong>
+            <span style="font-size:11px;color:#999">${fmt(f.monto)}/semana${seAplicaEste?' · '+sems.length+' semanas':''}</span>
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:${estaActivo?'#6f8':'#f88'}">
+              <input type="checkbox" ${estaActivo?'checked':''} onchange="toggleFijoActivo(${f.id})" style="width:13px;height:13px;accent-color:var(--pos)">
+              ${estaActivo?'Activo':'Inactivo desde '+MONTHS[f.mesDesactivacion||0]}
+            </label>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
-            <span class="badge badge-neg">${fmt(pendF)} pend.</span>
+            ${seAplicaEste?`<span class="badge badge-neg">${fmt(pendF)} pend.</span>`:''}
             ${modoLectura?'':`<button class="danger" onclick="eliminarFijo(${f.id})" style="padding:3px 8px">✕</button>`}
           </div>
-        </div>
-        <table><thead><tr><th>✓</th><th>Semana</th><th style="text-align:right">Fecha</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>`;
-      sems.forEach((fecha,i)=>{
-        const paid=isSemPagada(f.id,M,A,i);
-        const fechaStr=fecha.getDate()+'/'+(fecha.getMonth()+1);
-        const mEfectivo=montoSemanaEfectivo(f,M,A,i);
-        const tieneOv=f.montoOverrides&&f.montoOverrides[semOverrideKey(f.id,M,A,i)]!==undefined;
-        html+=`<tr class="${paid?'paid':''}">
-          <td><input type="checkbox" ${paid?'checked':''} onchange="toggleSemana(${f.id},${M},${A},${i})"></td>
-          <td>Semana ${i+1}${tieneOv?` <span style="color:var(--warn);font-size:10px" title="Monto ajustado">✎</span>`:''}</td>
-          <td style="text-align:right;font-size:11px;color:#999">${DIAS[fecha.getDay()]} ${fechaStr}</td>
-          <td style="text-align:right;color:${paid?'#666':'#f88'}">
-            ${paid?'<s>':''}${fmt(mEfectivo)}${paid?'</s>':''}
-            ${tieneOv?`<br><span style="font-size:10px;color:var(--text3)">Base: ${fmt(f.monto)}</span>`:''}
-          </td>
-          <td style="text-align:center">
-            ${modoLectura?'':` <button onclick="editarMontoSemana(${f.id},${M},${A},${i})" title="Ajustar monto semana ${i+1}" style="background:none;border:1px solid #444;cursor:pointer;color:#999;font-size:11px;padding:2px 6px;border-radius:3px">✎</button>`}
-          </td>
-        </tr>`;
-      });
-      html+=`<tr class="total-row"><td colspan="2"></td><td style="text-align:right">Total:</td><td style="text-align:right">${fmt(totalF)}</td></tr>
-      </tbody></table></div>`;
+        </div>`;
+      if(seAplicaEste&&sems.length>0){
+        html+=`<table><thead><tr><th>✓</th><th>Semana</th><th style="text-align:right">Fecha</th><th style="text-align:right">Monto</th><th></th></tr></thead><tbody>`;
+        sems.forEach((fecha,i)=>{
+          const paid=isSemPagada(f.id,M,A,i);
+          const fechaStr=fecha.getDate()+'/'+(fecha.getMonth()+1);
+          const mEfectivo=montoSemanaEfectivo(f,M,A,i);
+          const tieneOv=f.montoOverrides&&f.montoOverrides[semOverrideKey(f.id,M,A,i)]!==undefined;
+          html+=`<tr class="${paid?'paid':''}">
+            <td><input type="checkbox" ${paid?'checked':''} onchange="toggleSemana(${f.id},${M},${A},${i})"></td>
+            <td>Semana ${i+1}${tieneOv?` <span style="color:var(--warn);font-size:10px" title="Monto ajustado">✎</span>`:''}</td>
+            <td style="text-align:right;font-size:11px;color:#999">${DIAS[fecha.getDay()]} ${fechaStr}</td>
+            <td style="text-align:right;color:${paid?'#666':'#f88'}">
+              ${paid?'<s>':''}${fmt(mEfectivo)}${paid?'</s>':''}
+              ${tieneOv?`<br><span style="font-size:10px;color:var(--text3)">Base: ${fmt(f.monto)}</span>`:''}
+            </td>
+            <td style="text-align:center">
+              ${modoLectura?'':` <button onclick="editarMontoSemana(${f.id},${M},${A},${i})" title="Ajustar monto semana ${i+1}" style="background:none;border:1px solid #444;cursor:pointer;color:#999;font-size:11px;padding:2px 6px;border-radius:3px">✎</button>`}
+            </td>
+          </tr>`;
+        });
+        html+=`<tr class="total-row"><td colspan="2"></td><td style="text-align:right">Total:</td><td style="text-align:right">${fmt(totalF)}</td></tr>
+        </tbody></table>`;
+      } else if(!seAplicaEste){
+        html+=`<p style="font-size:12px;color:#666;padding:4px 0">No aplica este mes${!estaActivo?' (desactivado)':''}</p>`;
+      }
+      html+=`</div>`;
     });
   }
 
