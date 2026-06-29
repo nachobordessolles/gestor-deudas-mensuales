@@ -1378,25 +1378,30 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes,proximoCierreManual,fechaVenc
   const esFechaLarga = s => /^\d{2}\s[A-Za-záéíóú]{3}\s\d{2}$/.test(s); // "23 Jul 26"
 
   if(!proximoCierre || !fechaVencimiento){
-    // En el PDF llega como item único: "LIMITES: COMPRA" o separado
-    let idxLim = items.findIndex(x => /LIMITES/i.test(x) && /COMPRA/i.test(x));
-    if(idxLim === -1) idxLim = items.findIndex(x => /LIMITES/i.test(x));
+    // Patrón real del PDF (verificado):
+    // [..., "23 Jul 26", "21 May 26", "423850,00", "03 Ago 26", "1/ 3", "LIMITES: COMPRA", ...]
+    //         ↑ próx. cierre                         ↑ próx. vencimiento
+    //
+    // Estrategia: encontrar LIMITES: COMPRA, luego ir hacia atrás
+    // recolectando fechas "DD Mmm YY" ignorando todo lo demás.
+    // La primera fecha encontrada (más cercana a LIMITES) = próximo vencimiento
+    // La segunda fecha encontrada = próximo cierre
+
+    let idxLim = -1;
+    for(let k=0;k<items.length;k++){
+      if(/LIMITES/i.test(items[k])){idxLim=k;break;}
+    }
+
     if(idxLim > 0){
-      // Buscar hacia atrás hasta 25 posiciones, recolectar fechas largas "DD Mmm YY"
-      // ignorando montos y otros textos
-      const fechasAntes=[];
-      for(let k=idxLim-1;k>=Math.max(0,idxLim-25);k--){
-        if(esFechaLarga(items[k])) fechasAntes.unshift(items[k]);
+      const fechasEncontradas=[];
+      for(let k=idxLim-1; k>=Math.max(0,idxLim-10); k--){
+        if(esFechaLarga(items[k])) fechasEncontradas.push(items[k]);
+        if(fechasEncontradas.length>=2) break;
       }
-      // Del PDF: [..., "PROXIMO CIERRE", ..., fechaCierre, monto, fechaVto, "1/3", "LIMITES:COMPRA"]
-      // Las últimas dos fechas encontradas son: [0]=cierre, [1]=vencimiento
-      const ultimas = fechasAntes.slice(-2);
-      if(ultimas.length>=2){
-        if(!proximoCierre) proximoCierre=ultimas[0];
-        if(!fechaVencimiento) fechaVencimiento=ultimas[1];
-      } else if(ultimas.length===1){
-        if(!fechaVencimiento) fechaVencimiento=ultimas[0];
-      }
+      // fechasEncontradas[0] = más cercana a LIMITES = próximo vencimiento
+      // fechasEncontradas[1] = siguiente = próximo cierre
+      if(!fechaVencimiento && fechasEncontradas.length>=1) fechaVencimiento=fechasEncontradas[0];
+      if(!proximoCierre && fechasEncontradas.length>=2) proximoCierre=fechasEncontradas[1];
     }
   }
   // Paso 1: detectar marcadores "Tarjeta XXXX Total" que aparecen AL FINAL de cada sección
