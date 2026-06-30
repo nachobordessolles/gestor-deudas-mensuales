@@ -1799,18 +1799,17 @@ function renderTarjetas(){
   document.getElementById('view-tarjetas').innerHTML=html;
 }
 
-// Calcula, para cada tarjeta cargada en el mes actual seleccionado,
-// qué cuotas van a llegar a su última cuota en cada uno de los próximos 6 meses,
+// Calcula, para cada tarjeta cargada, qué cuotas van a llegar a su última cuota
+// en cada uno de los próximos 6 meses contados desde el mes que se está viendo (M,A),
 // y cuánto crédito se libera en consecuencia.
 function renderProyeccionFinalizacion(M,A){
-  // Tomamos como base las cuotas vigentes registradas en el mes actual (mesKey actual real, no el seleccionado para carga)
-  const mesKeyActual=A+'-'+String(M+1).padStart(2,'0');
-  const tarjMesActual=tarjetasPorMes[mesKeyActual]||{};
+  // Tomamos como base las cuotas vigentes registradas en el mes que se está viendo (M,A)
+  const mesKeyVisto=A+'-'+String(M+1).padStart(2,'0');
+  let baseObj=tarjetasPorMes[mesKeyVisto]||{};
+  let baseM=M, baseA=A;
 
-  // Si no hay carga en el mes actual exacto, buscamos la carga más reciente disponible (<=  mes actual)
-  let baseObj=tarjMesActual, baseM=M, baseA=A;
+  // Si no hay carga en ese mes exacto, buscamos la carga más reciente disponible hacia atrás desde (M,A)
   if(Object.keys(baseObj).length===0){
-    // buscar hacia atrás hasta 12 meses
     for(let back=1;back<=12;back++){
       let bm=M-back, ba=A;
       if(bm<0){bm+=12;ba-=1;}
@@ -1823,10 +1822,10 @@ function renderProyeccionFinalizacion(M,A){
 
   if(Object.keys(baseObj).length===0) return '';
 
-  // offset = cuántos meses pasaron desde la carga base hasta el mes actual real (M,A)
+  // offset = cuántos meses pasaron desde la carga base hasta el mes que se está viendo (M,A)
   const offsetBase=(A*12+M)-(baseA*12+baseM);
 
-  // Para cada uno de los próximos 6 meses (desde el mes actual M,A)
+  // Para cada uno de los próximos 6 meses (desde el mes que se está viendo M,A)
   const meses=[];
   for(let n=0;n<6;n++){
     let mm=M+n, aa=A;
@@ -1865,9 +1864,9 @@ function renderProyeccionFinalizacion(M,A){
 
   meses.forEach((mes,idx)=>{
     const p=porMes[idx];
-    const esMesActual=idx===0;
-    html+='<tr style="border-top:1px solid #2a2a2a'+(esMesActual?';background:#1a2a1a':'')+'">'
-      +'<td style="padding:6px;font-weight:'+(esMesActual?'600':'400')+'">'+MONTHS[mes.m]+' '+mes.a+(esMesActual?' <span style="font-size:10px;color:#6f8">(actual)</span>':'')+'</td>'
+    const esMesVisto=idx===0;
+    html+='<tr style="border-top:1px solid #2a2a2a'+(esMesVisto?';background:#1a2a1a':'')+'">'
+      +'<td style="padding:6px;font-weight:'+(esMesVisto?'600':'400')+'">'+MONTHS[mes.m]+' '+mes.a+(esMesVisto?' <span style="font-size:10px;color:#6f8">(seleccionado)</span>':'')+'</td>'
       +'<td style="text-align:right;padding:6px;color:'+(p.monto>0?'#6f8':'#555')+';font-weight:'+(p.monto>0?'600':'400')+'">'+(p.monto>0?fmt(p.monto):'—')+'</td>'
       +'<td style="padding:6px;font-size:11px;color:#999">'
         +(p.items.length>0?p.items.map(it=>it.nombre+': '+it.desc+' ('+it.cuotaTotal+'/'+it.cuotaTotal+')').join('<br>'):'')
