@@ -1793,7 +1793,93 @@ function renderTarjetas(){
     });
   }
 
+  // ── Sección: Próximos consumos a finalizar (próximos 6 meses) ───────
+  html+=renderProyeccionFinalizacion(M,A);
+
   document.getElementById('view-tarjetas').innerHTML=html;
+}
+
+// Calcula, para cada tarjeta cargada en el mes actual seleccionado,
+// qué cuotas van a llegar a su última cuota en cada uno de los próximos 6 meses,
+// y cuánto crédito se libera en consecuencia.
+function renderProyeccionFinalizacion(M,A){
+  // Tomamos como base las cuotas vigentes registradas en el mes actual (mesKey actual real, no el seleccionado para carga)
+  const mesKeyActual=A+'-'+String(M+1).padStart(2,'0');
+  const tarjMesActual=tarjetasPorMes[mesKeyActual]||{};
+
+  // Si no hay carga en el mes actual exacto, buscamos la carga más reciente disponible (<=  mes actual)
+  let baseObj=tarjMesActual, baseM=M, baseA=A;
+  if(Object.keys(baseObj).length===0){
+    // buscar hacia atrás hasta 12 meses
+    for(let back=1;back<=12;back++){
+      let bm=M-back, ba=A;
+      if(bm<0){bm+=12;ba-=1;}
+      const k=ba+'-'+String(bm+1).padStart(2,'0');
+      if(tarjetasPorMes[k]&&Object.keys(tarjetasPorMes[k]).length>0){
+        baseObj=tarjetasPorMes[k]; baseM=bm; baseA=ba; break;
+      }
+    }
+  }
+
+  if(Object.keys(baseObj).length===0) return '';
+
+  // offset = cuántos meses pasaron desde la carga base hasta el mes actual real (M,A)
+  const offsetBase=(A*12+M)-(baseA*12+baseM);
+
+  // Para cada uno de los próximos 6 meses (desde el mes actual M,A)
+  const meses=[];
+  for(let n=0;n<6;n++){
+    let mm=M+n, aa=A;
+    while(mm>11){mm-=12;aa+=1;}
+    meses.push({m:mm,a:aa,offset:offsetBase+n});
+  }
+
+  // Recorremos todas las tarjetas/cuotas de la carga base y proyectamos
+  const porMes=meses.map(()=>({monto:0,items:[]}));
+  Object.entries(baseObj).forEach(([key,t])=>{
+    (t.seccionesTarjeta||[]).forEach(sec=>{
+      (sec.cuotas||[]).forEach(c=>{
+        if(!c.cuotaTotal||c.cuotaTotal<=1) return; // ignorar consumos en 1 pago
+        meses.forEach((mes,idx)=>{
+          const cuotaProyectada=c.cuotaActual+mes.offset;
+          if(cuotaProyectada===c.cuotaTotal){
+            porMes[idx].monto+=c.monto;
+            porMes[idx].items.push({nombre:t.nombre,desc:c.descripcion,monto:c.monto,cuotaTotal:c.cuotaTotal});
+          }
+        });
+      });
+    });
+  });
+
+  const totalLiberado=porMes.reduce((s,p)=>s+p.monto,0);
+  if(totalLiberado===0){
+    return '<div class="section-divider">🔓 Próximos consumos a finalizar</div>'
+      +'<div class="card"><p style="font-size:12px;color:#666">No hay cuotas que finalicen en los próximos 6 meses (con los datos cargados).</p></div>';
+  }
+
+  let html='<div class="section-divider">🔓 Próximos consumos a finalizar</div>'
+    +'<div class="card">'
+    +'<p style="font-size:11px;color:#999;margin-bottom:10px">Cuánto crédito se libera por cuotas que terminan, mes a mes, a partir de '+MONTHS[M]+' '+A+'.</p>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+    +'<thead><tr><th style="text-align:left;padding:6px">Mes</th><th style="text-align:right;padding:6px">Se libera</th><th style="text-align:left;padding:6px">Detalle</th></tr></thead><tbody>';
+
+  meses.forEach((mes,idx)=>{
+    const p=porMes[idx];
+    const esMesActual=idx===0;
+    html+='<tr style="border-top:1px solid #2a2a2a'+(esMesActual?';background:#1a2a1a':'')+'">'
+      +'<td style="padding:6px;font-weight:'+(esMesActual?'600':'400')+'">'+MONTHS[mes.m]+' '+mes.a+(esMesActual?' <span style="font-size:10px;color:#6f8">(actual)</span>':'')+'</td>'
+      +'<td style="text-align:right;padding:6px;color:'+(p.monto>0?'#6f8':'#555')+';font-weight:'+(p.monto>0?'600':'400')+'">'+(p.monto>0?fmt(p.monto):'—')+'</td>'
+      +'<td style="padding:6px;font-size:11px;color:#999">'
+        +(p.items.length>0?p.items.map(it=>it.nombre+': '+it.desc+' ('+it.cuotaTotal+'/'+it.cuotaTotal+')').join('<br>'):'')
+      +'</td>'
+    +'</tr>';
+  });
+
+  html+='<tr style="border-top:2px solid #444;background:#141414"><td style="padding:6px;font-weight:700">Total 6 meses</td>'
+    +'<td style="text-align:right;padding:6px;font-weight:700;color:#6f8">'+fmt(totalLiberado)+'</td><td></td></tr>';
+
+  html+='</tbody></table></div>';
+  return html;
 }
 
 
