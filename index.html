@@ -1794,7 +1794,9 @@ function renderTarjetas(){
   }
 
   // ── Sección: Próximos consumos a finalizar (próximos 6 meses) ───────
-  html+=renderProyeccionFinalizacion(M,A);
+  const [pM_anio,pM_mes]=mesKey.split('-');
+  console.log('DEBUG proyección - mesKey:',mesKey,'→ mes:',parseInt(pM_mes)-1,'año:',parseInt(pM_anio));
+  html+=renderProyeccionFinalizacion(parseInt(pM_mes)-1,parseInt(pM_anio));
 
   document.getElementById('view-tarjetas').innerHTML=html;
 }
