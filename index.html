@@ -347,7 +347,7 @@ function editarMontoSemana(id,m,a,idx){
 function pagoKey(id,m,a){return`${id}-${m}-${a}`;}
 function isPagado(id,m,a){return!!(pagados[pagoKey(id,m,a)]);}
 function togglePago(id,m,a){const k=pagoKey(id,m,a);if(pagados[k])delete pagados[k];else pagados[k]=true;guardar();renderFijos();renderResumen();}
-function toggleFijoActivo(id){
+function toggleFijoActivo(id,mesDesde,anoDesde){
   const f=fijos.find(x=>x.id===id);
   if(!f)return;
   if(f.activo===false){
@@ -356,10 +356,10 @@ function toggleFijoActivo(id){
     delete f.mesDesactivacion;
     delete f.anoDesactivacion;
   } else {
-    // Desactivar: guardar el mes actual como inicio de desactivación
+    // Desactivar desde el mes que se está viendo
     f.activo=false;
-    f.mesDesactivacion=currentMonthIdx;
-    f.anoDesactivacion=CURRENT_YEAR;
+    f.mesDesactivacion=mesDesde!=null?mesDesde:currentMonthIdx;
+    f.anoDesactivacion=anoDesde!=null?anoDesde:CURRENT_YEAR;
   }
   guardar();renderFijos();
 }
@@ -855,7 +855,7 @@ function renderFijos(){
         <td>${seAplicaEste?`<input type="checkbox" ${paid?'checked':''} onchange="togglePago(${f.id},${M},${A})">`:'-'}</td>
         <td><span class="cat-dot" style="background:${cat.color}"></span>${f.nombre}</td>
         <td style="text-align:center;font-size:11px">
-          <input type="checkbox" ${estaActivo?'checked':''} onchange="toggleFijoActivo(${f.id})" title="Desactiva el gasto (se conserva en historial)">
+          <input type="checkbox" ${estaActivo?'checked':''} onchange="toggleFijoActivo(${f.id},${M},${A})" title="Desactiva el gasto (se conserva en historial)">
           <label style="cursor:pointer;margin-left:3px;font-size:10px">${estaActivo?'Activo':'Inactivo'}</label>
         </td>
         <td style="text-align:center;font-size:11px">${FREQ_LABEL[f.frecuencia]}</td>
@@ -895,7 +895,7 @@ function renderFijos(){
             <strong>${f.nombre}</strong>
             <span style="font-size:11px;color:#999">${fmt(f.monto)}/semana${seAplicaEste?' · '+sems.length+' semanas':''}</span>
             <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:11px;color:${estaActivo?'#6f8':'#f88'}">
-              <input type="checkbox" ${estaActivo?'checked':''} onchange="toggleFijoActivo(${f.id})" style="width:13px;height:13px;accent-color:var(--pos)">
+              <input type="checkbox" ${estaActivo?'checked':''} onchange="toggleFijoActivo(${f.id},${M},${A})" style="width:13px;height:13px;accent-color:var(--pos)">
               ${estaActivo?'Activo':'Inactivo desde '+MONTHS[f.mesDesactivacion||0]}
             </label>
           </div>
