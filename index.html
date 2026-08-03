@@ -256,18 +256,13 @@ async function guardarSheets(){
 
 async function cargarSheets(){
   try {
-    const r = await fetch(CSV_URL + Date.now());
-    const txt = await r.text();
-    // Buscar la línea que empieza con "estado,"
-    // El JSON está en la segunda columna, envuelto en comillas dobles con comillas internas escapadas como ""
-    const match = txt.match(/^estado,(.+)$/m);
-    if(!match) return null;
-    let raw = match[1].trim();
-    // Si está rodeado de comillas dobles, quitarlas y des-escapar ""  ->  "
-    if(raw.startsWith('"') && raw.endsWith('"')){
-      raw = raw.slice(1,-1).replace(/""/g,'"');
-    }
-    return JSON.parse(raw);
+    // Lee en vivo directo del Apps Script (doGet?accion=cargar), NO del CSV
+    // publicado: el CSV publicado se cachea del lado de Google y puede
+    // tardar minutos (o mucho más) en reflejar un guardado reciente.
+    const r = await fetch(SCRIPT_URL + '?accion=cargar&t=' + Date.now());
+    const data = await r.json();
+    if(!data || !data.ok || !data.estado) return null;
+    return data.estado;
   } catch(e) {
     console.error('Error cargando Sheets:', e);
     return null;
@@ -2118,8 +2113,8 @@ async function init(){
     if(b){b.textContent='☁ Datos cargados';b.className='save-badge save-ok';b.style.display='inline';setTimeout(()=>b.style.display='none',2500);}
   } else {
     // Fallback a localStorage
-    const sd=load('gd-deudas'),sc=load('gd-cats'),sf=load('gd-fijos'),sp=load('gd-pagados'),ss=load('gd-saldados');
-    aplicarEstado({deudas:sd,categorias:sc,fijos:sf,pagados:sp,saldados:ss});
+    const sd=load('gd-deudas'),sc=load('gd-cats'),sf=load('gd-fijos'),sp=load('gd-pagados'),ss=load('gd-saldados'),st=load('gd-tarjetas');
+    aplicarEstado({deudas:sd,categorias:sc,fijos:sf,pagados:sp,saldados:ss,tarjetasPorMes:st});
     if(b){b.textContent='💾 Datos locales';b.className='save-badge save-err';b.style.display='inline';setTimeout(()=>b.style.display='none',2500);}
   }
 
