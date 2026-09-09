@@ -227,7 +227,7 @@ const DEFAULT_CATS=[{id:201,nombre:'Servicios',color:'#378ADD'}];
 const DEFAULT_FIJOS=[];
 
 // ── Google Sheets sync ──────────────────────────────────────────────
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzbff7Tms5Y49j-10skoHVH90rU2yJvYqbKKakzauguPJXnQv7pqpUo185s9VuAwAIxjg/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzK4_ZhiaN-oM89UolMk53sy7j1_-D8hMyQWormvJi6_HoRIT7OEy8yOyLOneDLrwPR/exec';
 const CSV_URL    = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRsQ46aaLcLYVdXY20SWXzxAAeH6rbh8KfTWajrFwi6_LLK-OJUsEW4Cj0ytLqhFPUmUiE3d252CHoy/pub?gid=1971480074&single=true&output=csv&t=';
 
 // Fallback a localStorage para no perder datos si falla la red
@@ -256,13 +256,18 @@ async function guardarSheets(){
 
 async function cargarSheets(){
   try {
-    // Lee en vivo directo del Apps Script (doGet?accion=cargar), NO del CSV
-    // publicado: el CSV publicado se cachea del lado de Google y puede
-    // tardar minutos (o mucho más) en reflejar un guardado reciente.
-    const r = await fetch(SCRIPT_URL + '?accion=cargar&t=' + Date.now());
-    const data = await r.json();
-    if(!data || !data.ok || !data.estado) return null;
-    return data.estado;
+    const r = await fetch(CSV_URL + Date.now());
+    const txt = await r.text();
+    // Buscar la línea que empieza con "estado,"
+    // El JSON está en la segunda columna, envuelto en comillas dobles con comillas internas escapadas como ""
+    const match = txt.match(/^estado,(.+)$/m);
+    if(!match) return null;
+    let raw = match[1].trim();
+    // Si está rodeado de comillas dobles, quitarlas y des-escapar ""  ->  "
+    if(raw.startsWith('"') && raw.endsWith('"')){
+      raw = raw.slice(1,-1).replace(/""/g,'"');
+    }
+    return JSON.parse(raw);
   } catch(e) {
     console.error('Error cargando Sheets:', e);
     return null;
@@ -1959,23 +1964,46 @@ function eliminarTarjetaMes(mes,key){
 // ── Estadísticas ─────────────────────────────────────────────────────
 function renderStats(){
   const A=CURRENT_YEAR;
-  // Totales por mes
   const meses=Array.from({length:12},(_,i)=>i);
-  const totDeuda=meses.map(m=>getTotalDeudaMes(m,A));
+
+  // Totales por mes respetando saldados por persona
+  const totDeuda=meses.map(m=>{
+    return deudas.reduce((s,d)=>{
+      const c=getCuotaEnMes(d,m,A);
+      if(c===null) return s;
+      if(isSaldado(d.persona,m,A)) return s; // persona saldada ese mes
+      return s+getMonto(d);
+    },0);
+  });
   const totFijos=meses.map(m=>getTotalFijosMes(m,A));
   const totales=meses.map(m=>totDeuda[m]+totFijos[m]);
   const maxVal=Math.max(...totales,1);
 
-  // Personas y sus totales restantes
+  // Personas y sus totales restantes (desde mes actual en adelante, respetando saldados)
   const personas=getPersonas();
   const restoPersonas=personas.map(p=>{
-    const total=deudas.filter(d=>d.persona===p&&d.cuotaTotal!==999)
-      .reduce((s,d)=>{const r=d.cuotaTotal-d.cuotaInicio+1;return s+(d.negativo?-1:1)*d.monto*r;},0);
+    // Suma cuotas que quedan desde el mes actual en adelante, excluyendo meses saldados
+    let total=0;
+    for(let m=CURRENT_MONTH;m<12;m++){
+      if(isSaldado(p,m,A)) continue;
+      deudas.filter(d=>d.persona===p&&d.cuotaTotal!==999).forEach(d=>{
+        const c=getCuotaEnMes(d,m,A);
+        if(c!==null) total+=(d.negativo?-1:1)*d.monto;
+      });
+    }
+    // También años siguientes si hay cuotas que pasan de diciembre
+    deudas.filter(d=>d.persona===p&&d.cuotaTotal!==999).forEach(d=>{
+      for(let extraM=0;extraM<12;extraM++){
+        const extraA=A+1;
+        if(isSaldado(p,extraM,extraA)) continue;
+        const c=getCuotaEnMes(d,extraM,extraA);
+        if(c!==null) total+=(d.negativo?-1:1)*d.monto;
+      }
+    });
     return{p,total};
   }).filter(x=>x.total>0).sort((a,b)=>b.total-a.total);
   const maxResto=Math.max(...restoPersonas.map(x=>x.total),1);
 
-  // Mes con más gasto
   const mesPico=totales.indexOf(Math.max(...totales));
 
   let html=`<div class="card">
@@ -2042,25 +2070,26 @@ function renderStats(){
 
   // ── Proyección fin de pago ──
   const proyeccion=personas.map(p=>{
-    const items=deudas.filter(d=>d.persona===p&&d.cuotaTotal!==999);
+    const items=deudas.filter(d=>d.persona===p&&d.cuotaTotal!==999&&!d.negativo);
     if(!items.length)return null;
-    // Para cada deuda, mes de la última cuota
     let maxMes=-1;
     items.forEach(d=>{
-      const cuotasRest=d.cuotaTotal-d.cuotaInicio; // cuántas faltan desde el inicio
+      const cuotasRest=d.cuotaTotal-d.cuotaInicio;
       const mesFin=(d.anoInicio||2026)*12+d.mesInicio+cuotasRest;
       if(mesFin>maxMes)maxMes=mesFin;
     });
-    return{p,anio:Math.floor(maxMes/12),mes:maxMes%12,raw:maxMes};
+    // Si ya está saldado en el mes actual, marcarlo como terminado
+    const yaSaldado=isSaldado(p,CURRENT_MONTH,A);
+    return{p,anio:Math.floor(maxMes/12),mes:maxMes%12,raw:maxMes,yaSaldado};
   }).filter(Boolean).sort((a,b)=>a.raw-b.raw);
 
   if(proyeccion.length){
     const ahora=CURRENT_YEAR*12+CURRENT_MONTH;
     html+=`<div class="card" style="margin-top:1rem">
       <div class="card-header"><span class="card-title">🏁 Proyección de fin de pago</span></div>`;
-    proyeccion.forEach(({p,anio,mes,raw})=>{
+    proyeccion.forEach(({p,anio,mes,raw,yaSaldado})=>{
       const mesesRest=raw-ahora;
-      const terminado=mesesRest<0;
+      const terminado=mesesRest<0||yaSaldado;
       html+=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #333">
         <span style="font-size:13px">${p}</span>
         <div style="text-align:right">
@@ -2113,8 +2142,8 @@ async function init(){
     if(b){b.textContent='☁ Datos cargados';b.className='save-badge save-ok';b.style.display='inline';setTimeout(()=>b.style.display='none',2500);}
   } else {
     // Fallback a localStorage
-    const sd=load('gd-deudas'),sc=load('gd-cats'),sf=load('gd-fijos'),sp=load('gd-pagados'),ss=load('gd-saldados'),st=load('gd-tarjetas');
-    aplicarEstado({deudas:sd,categorias:sc,fijos:sf,pagados:sp,saldados:ss,tarjetasPorMes:st});
+    const sd=load('gd-deudas'),sc=load('gd-cats'),sf=load('gd-fijos'),sp=load('gd-pagados'),ss=load('gd-saldados');
+    aplicarEstado({deudas:sd,categorias:sc,fijos:sf,pagados:sp,saldados:ss});
     if(b){b.textContent='💾 Datos locales';b.className='save-badge save-err';b.style.display='inline';setTimeout(()=>b.style.display='none',2500);}
   }
 
