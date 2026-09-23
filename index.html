@@ -228,26 +228,14 @@ const DEFAULT_FIJOS=[];
 
 // ── Google Sheets sync ──────────────────────────────────────────────
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzK4_ZhiaN-oM89UolMk53sy7j1_-D8hMyQWormvJi6_HoRIT7OEy8yOyLOneDLrwPR/exec';
-const CSV_URL    = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRsQ46aaLcLYVdXY20SWXzxAAeH6rbh8KfTWajrFwi6_LLK-OJUsEW4Cj0ytLqhFPUmUiE3d252CHoy/pub?gid=1971480074&single=true&output=csv&t=';
-
-// Fallback a localStorage para no perder datos si falla la red
-function save(key,val){try{localStorage.setItem(key,JSON.stringify(val));return true;}catch(e){return false;}}
-function load(key){try{const v=localStorage.getItem(key);return v?JSON.parse(v):null;}catch(e){return null;}}
+function save(){}
+function load(){return null;}
 
 async function guardarSheets(){
-  // Nunca mandar tarjetasPorMes vacío al script — podría sobreescribir datos reales
-  const tarjetasAGuardar = Object.keys(tarjetasPorMes).length > 0
-    ? tarjetasPorMes
-    : (load('gd-tarjetas') || {});
-
   const estado = {
-    deudas, fijos, pagados, categorias, saldados,
-    tarjetasPorMes: tarjetasAGuardar,
+    deudas, fijos, pagados, categorias, saldados, tarjetasPorMes,
     ts: Date.now()
   };
-  save('gd-deudas',deudas);save('gd-fijos',fijos);save('gd-pagados',pagados);
-  save('gd-cats',categorias);save('gd-saldados',saldados);
-  if(Object.keys(tarjetasAGuardar).length>0) save('gd-tarjetas',tarjetasAGuardar);
   try {
     await fetch(SCRIPT_URL, {
       method:'POST', mode:'no-cors',
@@ -262,17 +250,10 @@ async function guardarSheets(){
 
 async function cargarSheets(){
   try {
-    // Usar el endpoint doGet del Apps Script que devuelve todo incluyendo tarjetasPorMes
     const r = await fetch(SCRIPT_URL + '?accion=cargar&t=' + Date.now());
     const json = await r.json();
     if(!json.ok || !json.estado) { console.warn('cargarSheets: respuesta inválida', json); return null; }
-    // Si tarjetasPorMes llega vacío del script, intentar recuperar del localStorage
-    const tarjetasScript = json.estado.tarjetasPorMes || {};
-    const tarjetasLocal  = load('gd-tarjetas') || {};
-    // Combinar: el script es la fuente principal, localStorage llena los huecos
-    const tarjetasCombinadas = Object.assign({}, tarjetasLocal, tarjetasScript);
-    json.estado.tarjetasPorMes = tarjetasCombinadas;
-    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(tarjetasCombinadas));
+    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(json.estado.tarjetasPorMes||{}));
     return json.estado;
   } catch(e) {
     console.error('Error cargando Sheets:', e);
@@ -2134,27 +2115,21 @@ function aplicarEstado(estado){
 }
 
 async function init(){
-  // Mostrar indicador de carga
   const b=document.getElementById('save-badge');
   if(b){b.textContent='⏳ Cargando...';b.className='save-badge save-err';b.style.display='inline';}
 
-  // Intentar cargar desde Sheets
   const estadoSheets = await cargarSheets();
 
   if(estadoSheets && estadoSheets.deudas){
     aplicarEstado(estadoSheets);
-    // Las tarjetas siempre se cargan de localStorage (no se sincronizan con Sheets)
-    tarjetasPorMes = load('gd-tarjetas') || {};
     if(b){b.textContent='☁ Datos cargados';b.className='save-badge save-ok';b.style.display='inline';setTimeout(()=>b.style.display='none',2500);}
   } else {
-    // Fallback a localStorage
-    const sd=load('gd-deudas'),sc=load('gd-cats'),sf=load('gd-fijos'),sp=load('gd-pagados'),ss=load('gd-saldados'),st=load('gd-tarjetas');
-    aplicarEstado({deudas:sd,categorias:sc,fijos:sf,pagados:sp,saldados:ss,tarjetasPorMes:st||{}});
-    if(b){b.textContent='💾 Datos locales';b.className='save-badge save-err';b.style.display='inline';setTimeout(()=>b.style.display='none',2500);}
+    // Sin conexión a Sheets — arrancar vacío
+    aplicarEstado({});
+    if(b){b.textContent='⚠ Sin conexión a Sheets';b.className='save-badge save-err';b.style.display='inline';}
   }
 
   renderResumen();
-  // Revisar vencimientos al abrir (si están activadas las notificaciones)
   setTimeout(()=>revisarVencimientos(),1500);
 }
 
