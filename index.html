@@ -235,12 +235,19 @@ function save(key,val){try{localStorage.setItem(key,JSON.stringify(val));return 
 function load(key){try{const v=localStorage.getItem(key);return v?JSON.parse(v):null;}catch(e){return null;}}
 
 async function guardarSheets(){
+  // Nunca mandar tarjetasPorMes vacío al script — podría sobreescribir datos reales
+  const tarjetasAGuardar = Object.keys(tarjetasPorMes).length > 0
+    ? tarjetasPorMes
+    : (load('gd-tarjetas') || {});
+
   const estado = {
-    deudas, fijos, pagados, categorias, saldados, tarjetasPorMes,
+    deudas, fijos, pagados, categorias, saldados,
+    tarjetasPorMes: tarjetasAGuardar,
     ts: Date.now()
   };
   save('gd-deudas',deudas);save('gd-fijos',fijos);save('gd-pagados',pagados);
-  save('gd-cats',categorias);save('gd-saldados',saldados);save('gd-tarjetas',tarjetasPorMes);
+  save('gd-cats',categorias);save('gd-saldados',saldados);
+  if(Object.keys(tarjetasAGuardar).length>0) save('gd-tarjetas',tarjetasAGuardar);
   try {
     await fetch(SCRIPT_URL, {
       method:'POST', mode:'no-cors',
@@ -259,7 +266,13 @@ async function cargarSheets(){
     const r = await fetch(SCRIPT_URL + '?accion=cargar&t=' + Date.now());
     const json = await r.json();
     if(!json.ok || !json.estado) { console.warn('cargarSheets: respuesta inválida', json); return null; }
-    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(json.estado.tarjetasPorMes||{}));
+    // Si tarjetasPorMes llega vacío del script, intentar recuperar del localStorage
+    const tarjetasScript = json.estado.tarjetasPorMes || {};
+    const tarjetasLocal  = load('gd-tarjetas') || {};
+    // Combinar: el script es la fuente principal, localStorage llena los huecos
+    const tarjetasCombinadas = Object.assign({}, tarjetasLocal, tarjetasScript);
+    json.estado.tarjetasPorMes = tarjetasCombinadas;
+    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(tarjetasCombinadas));
     return json.estado;
   } catch(e) {
     console.error('Error cargando Sheets:', e);
