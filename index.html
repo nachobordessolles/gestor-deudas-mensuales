@@ -228,6 +228,7 @@ const DEFAULT_FIJOS=[];
 
 // ── Google Sheets sync ──────────────────────────────────────────────
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzK4_ZhiaN-oM89UolMk53sy7j1_-D8hMyQWormvJi6_HoRIT7OEy8yOyLOneDLrwPR/exec';
+const CSV_URL    = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRsQ46aaLcLYVdXY20SWXzxAAeH6rbh8KfTWajrFwi6_LLK-OJUsEW4Cj0ytLqhFPUmUiE3d252CHoy/pub?gid=1971480074&single=true&output=csv&t=';
 function save(){}
 function load(){return null;}
 
@@ -250,11 +251,35 @@ async function guardarSheets(){
 
 async function cargarSheets(){
   try {
-    const r = await fetch(SCRIPT_URL + '?accion=cargar&t=' + Date.now());
-    const json = await r.json();
-    if(!json.ok || !json.estado) { console.warn('cargarSheets: respuesta inválida', json); return null; }
-    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(json.estado.tarjetasPorMes||{}));
-    return json.estado;
+    const r = await fetch(CSV_URL + Date.now());
+    if(!r.ok) return null;
+    const txt = await r.text();
+
+    // Leer fila "estado"
+    const matchEstado = txt.match(/^estado,(.+)$/m);
+    if(!matchEstado) { console.warn('cargarSheets: no se encontró fila estado'); return null; }
+    let rawEstado = matchEstado[1].trim();
+    if(rawEstado.startsWith('"') && rawEstado.endsWith('"'))
+      rawEstado = rawEstado.slice(1,-1).replace(/""/g,'"');
+    const estado = JSON.parse(rawEstado);
+
+    // Leer filas de tarjetas "tarjetas-YYYY-MM"
+    const tarjetasPorMesCargado = {};
+    const lines = txt.split('\n');
+    for(const line of lines){
+      const m = line.match(/^tarjetas-(\d{4}-\d{2}),(.+)$/);
+      if(!m) continue;
+      const mesKey = m[1];
+      let rawT = m[2].trim();
+      if(rawT.startsWith('"') && rawT.endsWith('"'))
+        rawT = rawT.slice(1,-1).replace(/""/g,'"');
+      try{ tarjetasPorMesCargado[mesKey] = JSON.parse(rawT); }
+      catch(e){ console.warn('Error parseando tarjeta',mesKey,e); }
+    }
+
+    estado.tarjetasPorMes = tarjetasPorMesCargado;
+    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(tarjetasPorMesCargado));
+    return estado;
   } catch(e) {
     console.error('Error cargando Sheets:', e);
     return null;
