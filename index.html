@@ -235,19 +235,28 @@ function save(key,val){try{localStorage.setItem(key,JSON.stringify(val));return 
 function load(key){try{const v=localStorage.getItem(key);return v?JSON.parse(v):null;}catch(e){return null;}}
 
 async function guardarSheets(){
+  // El estado general NO incluye tarjetasPorMes (se guardan por separado)
   const estado = {
-    deudas, fijos, pagados, categorias, saldados, tarjetasPorMes,
+    deudas, fijos, pagados, categorias, saldados,
     ts: Date.now()
   };
-  // Guardar en localStorage como backup inmediato
   save('gd-deudas',deudas);save('gd-fijos',fijos);save('gd-pagados',pagados);
   save('gd-cats',categorias);save('gd-saldados',saldados);save('gd-tarjetas',tarjetasPorMes);
   try {
+    // Guardar estado principal
     await fetch(SCRIPT_URL, {
       method:'POST', mode:'no-cors',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ accion:'guardar', estado: JSON.stringify(estado) })
     });
+    // Guardar cada mes de tarjetas como fila separada
+    for(const [mesKey, tarjData] of Object.entries(tarjetasPorMes)){
+      await fetch(SCRIPT_URL, {
+        method:'POST', mode:'no-cors',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ accion:'guardarTarjeta', mesKey, datos: JSON.stringify(tarjData) })
+      });
+    }
     showBadge(true);
   } catch(e) {
     showBadge(false);
@@ -258,16 +267,33 @@ async function cargarSheets(){
   try {
     const r = await fetch(CSV_URL + Date.now());
     const txt = await r.text();
-    // Buscar la línea que empieza con "estado,"
-    // El JSON está en la segunda columna, envuelto en comillas dobles con comillas internas escapadas como ""
+
+    // Leer fila "estado"
     const match = txt.match(/^estado,(.+)$/m);
-    if(!match) return null;
+    if(!match) { console.warn('cargarSheets: no se encontró fila "estado"'); return null; }
     let raw = match[1].trim();
-    // Si está rodeado de comillas dobles, quitarlas y des-escapar ""  ->  "
     if(raw.startsWith('"') && raw.endsWith('"')){
       raw = raw.slice(1,-1).replace(/""/g,'"');
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+
+    // Leer filas de tarjetas por separado (formato: "tarjetas-YYYY-MM, {...}")
+    const tarjetasRecuperadas = {};
+    const lineaReg = /^(tarjetas-\d{4}-\d{2}),(.+)$/gm;
+    let m2;
+    while((m2=lineaReg.exec(txt))!==null){
+      const mesKey=m2[1].replace('tarjetas-','');
+      let rawT=m2[2].trim();
+      if(rawT.startsWith('"')&&rawT.endsWith('"')) rawT=rawT.slice(1,-1).replace(/""/g,'"');
+      try{ tarjetasRecuperadas[mesKey]=JSON.parse(rawT); }catch(e){ console.warn('Error parseando tarjeta',mesKey,e); }
+    }
+
+    // Combinar: tarjetasPorMes del estado (si existe) + filas separadas
+    const tarjetasCombinadas = Object.assign({}, parsed.tarjetasPorMes||{}, tarjetasRecuperadas);
+    parsed.tarjetasPorMes = tarjetasCombinadas;
+
+    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(tarjetasCombinadas));
+    return parsed;
   } catch(e) {
     console.error('Error cargando Sheets:', e);
     return null;
