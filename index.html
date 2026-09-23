@@ -2139,11 +2139,13 @@ async function init(){
 
   if(estadoSheets && estadoSheets.deudas){
     aplicarEstado(estadoSheets);
+    // Las tarjetas siempre se cargan de localStorage (no se sincronizan con Sheets)
+    tarjetasPorMes = load('gd-tarjetas') || {};
     if(b){b.textContent='☁ Datos cargados';b.className='save-badge save-ok';b.style.display='inline';setTimeout(()=>b.style.display='none',2500);}
   } else {
     // Fallback a localStorage
-    const sd=load('gd-deudas'),sc=load('gd-cats'),sf=load('gd-fijos'),sp=load('gd-pagados'),ss=load('gd-saldados');
-    aplicarEstado({deudas:sd,categorias:sc,fijos:sf,pagados:sp,saldados:ss});
+    const sd=load('gd-deudas'),sc=load('gd-cats'),sf=load('gd-fijos'),sp=load('gd-pagados'),ss=load('gd-saldados'),st=load('gd-tarjetas');
+    aplicarEstado({deudas:sd,categorias:sc,fijos:sf,pagados:sp,saldados:ss,tarjetasPorMes:st||{}});
     if(b){b.textContent='💾 Datos locales';b.className='save-badge save-err';b.style.display='inline';setTimeout(()=>b.style.display='none',2500);}
   }
 
