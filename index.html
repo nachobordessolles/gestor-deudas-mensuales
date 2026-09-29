@@ -214,7 +214,7 @@ const TODAY=new Date();
 const CURRENT_MONTH=TODAY.getMonth();
 const CURRENT_YEAR=TODAY.getFullYear();
 
-let currentView='resumen', currentMonthIdx=CURRENT_MONTH;
+let currentView='resumen', currentMonthIdx=CURRENT_MONTH, viewYear=CURRENT_YEAR; // viewYear = año que se está mirando (CURRENT_YEAR = año real de hoy)
 let deudas=[],fijos=[],pagados={},categorias=[],saldados={};
 let editingId=null,editingFijoId=null,saveTimer=null;
 let filtroLista='', ordenLista='persona', ordenDir=1;
@@ -408,7 +408,7 @@ function toggleFijoActivo(id,mesDesde,anoDesde){
     // Desactivar desde el mes que se está viendo
     f.activo=false;
     f.mesDesactivacion=mesDesde!=null?mesDesde:currentMonthIdx;
-    f.anoDesactivacion=anoDesde!=null?anoDesde:CURRENT_YEAR;
+    f.anoDesactivacion=anoDesde!=null?anoDesde:viewYear;
   }
   guardar();renderFijos();
 }
@@ -424,7 +424,7 @@ function montoFijoEfectivo(f,m,a){
 function editarMontoFijoMes(id){
   if(modoLectura)return;
   const f=fijos.find(x=>x.id===id);if(!f)return;
-  const m=currentMonthIdx,a=CURRENT_YEAR;
+  const m=currentMonthIdx,a=viewYear;
   const key=`${a}-${String(m+1).padStart(2,'0')}`;
   const actual=montoFijoEfectivo(f,m,a);
   const input=prompt(
@@ -479,7 +479,7 @@ function guardar(){
 }
 
 function renderResumen(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const M=currentMonthIdx,A=viewYear;
   const personas=getPersonas();
   const td=getTotalDeudaMes(M,A),tf=getTotalFijosMes(M,A),fp=getTotalFijosPend(M,A);
 
@@ -737,7 +737,7 @@ function renderResumen(){
 }
 
 function renderDetalle(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const M=currentMonthIdx,A=viewYear;
   const personas=getPersonas();
   let html='';
   personas.forEach(p=>{
@@ -875,7 +875,7 @@ function guardarEdit(id){
 }
 
 function renderFijos(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const M=currentMonthIdx,A=viewYear;
   const totalMes=getTotalFijosMes(M,A),pendiente=getTotalFijosPend(M,A),pagado=totalMes-pendiente;
   const DIAS=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
   let html=`<div class="month-nav">
@@ -1140,7 +1140,7 @@ function agregarFijo(){
   const monto=parseFloat(document.getElementById('ff-monto').value);
   const freq=document.getElementById('ff-freq').value;
   if(!nombre||isNaN(monto)){alert('Completá campos');return;}
-  const obj={id:Date.now(),nombre,monto,frecuencia:freq,mesBase:currentMonthIdx,anoBase:CURRENT_YEAR,categoriaId:parseInt(document.getElementById('ff-cat').value)};
+  const obj={id:Date.now(),nombre,monto,frecuencia:freq,mesBase:currentMonthIdx,anoBase:viewYear,categoriaId:parseInt(document.getElementById('ff-cat').value)};
   if(freq==='semanal'){
     obj.diaSemana=parseInt(document.getElementById('ff-dia').value);
   } else {
@@ -1152,7 +1152,7 @@ function agregarFijo(){
 function eliminarFijo(id){const f=fijos.find(x=>x.id===id);if(!confirm(`¿Eliminar el gasto fijo "${f?f.nombre:''}"?`))return;fijos=fijos.filter(x=>x.id!==id);guardar();renderFijos();}
 function eliminarDeuda(id){deudas=deudas.filter(x=>x.id!==id);guardar();renderLista();}
 function exportarMes(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const M=currentMonthIdx,A=viewYear;
   const personas=getPersonas();
   let txt=`📊 RESUMEN ${MONTHS[M].toUpperCase()} ${A}\n${'─'.repeat(28)}\n\n`;
 
@@ -1217,8 +1217,13 @@ function copiarPersona(p,m,a){
   }).catch(()=>alert('No se pudo copiar. Copiá manualmente:\n\n'+txt));
 }
 
-function changeMonth(dir){currentMonthIdx=Math.max(0,Math.min(11,currentMonthIdx+dir));renderResumen();}
-function changeFijoMonth(dir){currentMonthIdx=Math.max(0,Math.min(11,currentMonthIdx+dir));renderFijos();}
+function moverMes(dir){
+  currentMonthIdx+=dir;
+  if(currentMonthIdx<0){currentMonthIdx=11;viewYear--;}
+  else if(currentMonthIdx>11){currentMonthIdx=0;viewYear++;}
+}
+function changeMonth(dir){moverMes(dir);renderResumen();}
+function changeFijoMonth(dir){moverMes(dir);renderFijos();}
 function agregarDeuda(){
   const persona=document.getElementById('f-persona').value.trim(),producto=document.getElementById('f-producto').value.trim(),monto=parseFloat(document.getElementById('f-monto').value),cini=parseInt(document.getElementById('f-cini').value),ctot=parseInt(document.getElementById('f-ctot').value),mesInicio=parseInt(document.getElementById('f-mes').value),anoInicio=parseInt(document.getElementById('f-ano').value)||CURRENT_YEAR,negativo=document.getElementById('f-neg').value==='true';
   if(!persona||!producto||isNaN(monto)||isNaN(cini)||isNaN(ctot)){alert('Completá campos');return;}
@@ -1243,7 +1248,7 @@ function setView(v){
 
 // ── Badge fijos pendientes ───────────────────────────────────────────
 function actualizarBadgeFijos(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const M=currentMonthIdx,A=viewYear;
   const pend=getTotalFijosPend(M,A);
   const b=document.getElementById('badge-fijos');
   if(!b)return;
@@ -1253,7 +1258,7 @@ function actualizarBadgeFijos(){
 
 // ── Alertas de vencimiento (próximos 3 días) ─────────────────────────
 function getAlertas(){
-  const M=currentMonthIdx,A=CURRENT_YEAR;
+  const M=currentMonthIdx,A=viewYear;
   const hoy=new Date();hoy.setHours(0,0,0,0);
   const alertas=[];
   fijos.forEach(f=>{
@@ -1653,7 +1658,7 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes,proximoCierreManual,fechaVenc
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 function renderTarjetas(){
-  const M=currentMonthIdx, A=CURRENT_YEAR;
+  const M=currentMonthIdx, A=viewYear;
   const mesDefault=A+'-'+String(M+1).padStart(2,'0');
   
   // Si hay selects en pantalla, leer sus valores
@@ -1672,15 +1677,18 @@ function renderTarjetas(){
     {v:'visa-patagonia',l:'Visa Patagonia'}
   ].map(o=>'<option value="'+o.v+'"'+(o.v===tipoTarjetaSeleccionado?' selected':'')+'>'+o.l+'</option>').join('');
 
-  // Selector de mes
-  const mesOpts=Array.from({length:12},(_,m)=>{
-    const key=A+'-'+String(m+1).padStart(2,'0');
-    const sel=key===mesKey?'selected':'';
-    return '<option value="'+key+'" '+sel+'>'+MONTHS[m]+' '+A+'</option>';
+  // Selector de mes: años que tienen datos + año real + el siguiente + el que se está viendo
+  const aniosSet=new Set([CURRENT_YEAR,CURRENT_YEAR+1,A,parseInt(mesKey.split('-')[0])]);
+  Object.keys(tarjetasPorMes).forEach(function(k){const y=parseInt(k.split('-')[0]);if(!isNaN(y))aniosSet.add(y);});
+  const mesOpts=Array.from(aniosSet).sort(function(a,b){return a-b;}).map(function(y){
+    return Array.from({length:12},function(_,m){
+      const key=y+'-'+String(m+1).padStart(2,'0');
+      return '<option value="'+key+'" '+(key===mesKey?'selected':'')+'>'+MONTHS[m]+' '+y+'</option>';
+    }).join('');
   }).join('');
 
   let html='<div class="card" style="margin-bottom:1rem">'
-    +'<strong>Cargar tarjeta de crédito (PDF)</strong> <span style="font-size:10px;color:#666;float:right">v2026-09-29c-parser-guardado</span> <a href="'+SCRIPT_URL+'?accion=diagnostico" target="_blank" style="font-size:10px;color:#6a9;float:right;margin-right:8px">ver qué hay en Sheets</a>'
+    +'<strong>Cargar tarjeta de crédito (PDF)</strong> <span style="font-size:10px;color:#666;float:right">v2026-09-29d-anio-borrado</span> <a href="'+SCRIPT_URL+'?accion=diagnostico" target="_blank" style="font-size:10px;color:#6a9;float:right;margin-right:8px">ver qué hay en Sheets</a>'
     +'<p style="font-size:12px;color:#999;margin:8px 0">Seleccioná tarjeta, mes y cargá el PDF del resumen.</p>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">'
       +'<div><label style="font-size:11px;color:#999">Tipo de tarjeta:</label>'
@@ -1708,7 +1716,7 @@ function renderTarjetas(){
     +'</div></div>';
 
   const tarjMesObj=tarjetasPorMes[mesKey]||{};
-  console.log('renderTarjetas v2026-09-29c-parser-guardado');
+  console.log('renderTarjetas v2026-09-29d-anio-borrado');
   console.log('renderTarjetas - mesKey:', mesKey, '| tarjetas en ese mes:', Object.keys(tarjMesObj).length, Object.keys(tarjMesObj));
   // Mostrar solo las tarjetas del mes que coinciden con el tipo elegido en el combo
   const tarjMesEntries=Object.entries(tarjMesObj).filter(function(e){return e[1]&&e[1].tipo===tipoTarjetaSeleccionado;});
@@ -2008,7 +2016,8 @@ function eliminarTarjetaMes(mes,key){
   const t=tarjetasPorMes[mes][key];
   if(!confirm('¿Eliminar tarjeta "'+t.nombre+'"?'))return;
   delete tarjetasPorMes[mes][key];
-  if(Object.keys(tarjetasPorMes[mes]).length===0)delete tarjetasPorMes[mes];
+  // OJO: si el mes queda vacío NO se borra la clave: se guarda como {} para que Sheets sobrescriba la fila
+  // (el servidor nunca borra filas, y si no se enviara el mes la tarjeta borrada reaparecería al recargar).
   guardar();
   renderTarjetas();
 }
