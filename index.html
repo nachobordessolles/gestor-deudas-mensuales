@@ -255,46 +255,53 @@ async function guardarSheets(){
 async function cargarSheets(){
   try {
     const r = await fetch(CSV_URL + Date.now());
-    if(!r.ok) return null;
+    if(!r.ok){ console.error('CSV fetch error:', r.status); return null; }
     const txt = await r.text();
+    console.log('CSV cargado, largo:', txt.length, 'chars');
 
-    // Parsear CSV respetando celdas con comillas (Google Sheets escapa " como "")
-    function parseCsvCell(raw){
-      raw = raw.trim();
-      if(raw.startsWith('"') && raw.endsWith('"'))
-        raw = raw.slice(1,-1).replace(/""/g,'"');
-      return raw;
-    }
-
-    // Leer todas las filas: cada línea puede tener celdas con JSON largo entre comillas
-    // Usamos un split simple por línea y tomamos todo después de la primera coma como valor
     const estado = {};
     const tarjetasPorMesCargado = {};
 
-    const lines = txt.split('\n');
+    // Parser robusto: recorre char por char respetando celdas entre comillas
+    const lines = [];
+    let current = '';
+    let inQuotes = false;
+    for(let i=0; i<txt.length; i++){
+      const ch = txt[i];
+      if(ch==='"'){
+        if(inQuotes && txt[i+1]==='"'){ current+='"'; i++; } // escape ""
+        else inQuotes = !inQuotes;
+      } else if((ch==='\n'||ch==='\r') && !inQuotes){
+        if(current.trim()) lines.push(current);
+        current='';
+        if(ch==='\r' && txt[i+1]==='\n') i++; // \r\n
+      } else {
+        current+=ch;
+      }
+    }
+    if(current.trim()) lines.push(current);
+
+    console.log('Líneas CSV:', lines.length);
+
     for(const line of lines){
-      if(!line.trim()) continue;
+      // Primera coma separa key del valor
       const firstComma = line.indexOf(',');
-      if(firstComma === -1) continue;
+      if(firstComma===-1) continue;
       const key = line.substring(0, firstComma).trim();
-      const val = parseCsvCell(line.substring(firstComma+1));
-      if(!val) continue;
+      let val = line.substring(firstComma+1).trim();
+      if(!key || !val) continue;
       try{
-        if(key === 'estado'){
-          const parsed = JSON.parse(val);
-          Object.assign(estado, parsed);
-        } else if(key.startsWith('tarjetas-')){
-          const mesKey = key.replace('tarjetas-','');
-          tarjetasPorMesCargado[mesKey] = JSON.parse(val);
-        }
-      } catch(e){ console.warn('Error parseando fila:', key, e); }
+        const parsed = JSON.parse(val);
+        if(key==='estado') Object.assign(estado, parsed);
+        else if(key.startsWith('tarjetas-')) tarjetasPorMesCargado[key.replace('tarjetas-','')] = parsed;
+      } catch(e){ console.warn('Error parseando fila:', key, e.message); }
     }
 
-    if(!estado.deudas){ console.warn('cargarSheets: no se encontró fila estado'); return null; }
+    if(!estado.deudas){ console.warn('No se encontró fila estado válida'); return null; }
     estado.tarjetasPorMes = tarjetasPorMesCargado;
-    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(tarjetasPorMesCargado));
+    console.log('cargarSheets OK - meses tarjetas:', Object.keys(tarjetasPorMesCargado));
     return estado;
-  } catch(e) {
+  } catch(e){
     console.error('Error cargando Sheets:', e);
     return null;
   }
@@ -1683,6 +1690,7 @@ function renderTarjetas(){
     +'</div></div>';
 
   const tarjMesObj=tarjetasPorMes[mesKey]||{};
+  console.log('renderTarjetas - mesKey:', mesKey, '| tarjetas en ese mes:', Object.keys(tarjMesObj).length, Object.keys(tarjMesObj));
   // Mostrar TODAS las tarjetas del mes (el selector de tipo es solo para cargar PDFs)
   const tarjMesEntries=Object.entries(tarjMesObj);
 
