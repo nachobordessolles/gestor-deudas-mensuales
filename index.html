@@ -227,7 +227,7 @@ const DEFAULT_CATS=[{id:201,nombre:'Servicios',color:'#378ADD'}];
 const DEFAULT_FIJOS=[];
 
 // ── Google Sheets sync ──────────────────────────────────────────────
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzK4_ZhiaN-oM89UolMk53sy7j1_-D8hMyQWormvJi6_HoRIT7OEy8yOyLOneDLrwPR/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwmsCBLoM_83ulr9v1Fouf1KdTgaC8C1MxXZ4NI3cJyeOOnMUaMHkgWLBpet9RcJVztWg/exec';
 const CSV_URL    = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRsQ46aaLcLYVdXY20SWXzxAAeH6rbh8KfTWajrFwi6_LLK-OJUsEW4Cj0ytLqhFPUmUiE3d252CHoy/pub?gid=1971480074&single=true&output=csv&t=';
 function save(){}
 function load(){return null;}
@@ -238,17 +238,33 @@ async function guardarSheets(){
     ts: Date.now()
   };
   console.log('guardarSheets - tarjetasPorMes meses:', Object.keys(tarjetasPorMes));
+  const cuerpo = JSON.stringify({ accion:'guardar', estado: JSON.stringify(estado) });
+  if(navigator.onLine===false){ showBadge(false,'⚠ Sin conexión: NO se guardó en Sheets'); return; }
   try {
-    await fetch(SCRIPT_URL, {
-      method:'POST', mode:'no-cors',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ accion:'guardar', estado: JSON.stringify(estado) })
+    // text/plain = request "simple" (sin preflight). Si el deploy es "Cualquier usuario" la respuesta se puede leer
+    // y sabemos si el servidor realmente escribió. Si el navegador bloquea la lectura, queda como "sin confirmar".
+    const resp = await fetch(SCRIPT_URL, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body: cuerpo
     });
-    console.log('guardarSheets - POST enviado OK');
-    showBadge(true);
+    let j=null;
+    try{ j = await resp.json(); }catch(e){ j=null; }
+    if(j && j.ok){
+      console.log('guardarSheets - servidor confirmó. Filas:', j.escritas);
+      showBadge(true,'☁ Guardado en Sheets ('+(j.escritas?j.escritas.length:'?')+' filas)');
+    } else if(j){
+      console.error('guardarSheets - el servidor devolvió error:', j);
+      const det=(j.errores&&j.errores.length)?j.errores.map(x=>x.key+' ('+(x.largo||x.error)+')').join(', '):(j.error||'error desconocido');
+      showBadge(false,'⚠ Sheets NO guardó: '+det);
+    } else {
+      console.warn('guardarSheets - respuesta no legible (¿deploy sin acceso "Cualquier usuario"?) status:', resp.status, resp.type);
+      showBadge(false,'⚠ Respuesta inesperada de Sheets — verificá el deploy');
+    }
   } catch(e) {
-    console.error('guardarSheets - error:', e);
-    showBadge(false);
+    // Lo más común: el navegador no deja leer la respuesta (CORS). El POST igual se envió.
+    console.warn('guardarSheets - enviado pero sin confirmación:', e.message);
+    showBadge(true,'☁ Enviado a Sheets (sin confirmar)');
   }
 }
 
@@ -455,7 +471,7 @@ function showBadge(ok, msg){
   b.className='save-badge '+(ok?'save-ok':'save-err');
   b.style.display='inline';
   clearTimeout(saveTimer);
-  saveTimer=setTimeout(()=>{b.style.display='none';},3000);
+  saveTimer=setTimeout(()=>{b.style.display='none';},ok?3000:12000);
 }
 function guardar(){
   if(modoLectura) return;
@@ -1294,7 +1310,7 @@ function esMonto(s){return /^\d{1,3}(\.\d{3})*,\d{2}$/.test(s);}
 function esMontoNeg(s){return /^\d{1,3}(\.\d{3})*,\d{2}-$/.test(s)||/^-\d{1,3}(\.\d{3})*,\d{2}$/.test(s);}
 function parseMonto(s){return parseFloat(s.replace(/\./g,'').replace(',','.').replace(/-$/,'').replace(/^-/,''));}
 function esFecha(s){return /^\d{2}\.\d{2}\.\d{2}$/.test(s);}
-function esComprobante(s){return /^\d{5,7}[K*]?$/.test(s);}
+function esComprobante(s){return /^\d{5,7}[A-Z*]?$/.test(s);}
 function esMontoUSD(s){return /^\d{1,3}(\.\d{3})*,\d{2}$/.test(s)||/^\d+,\d{2}$/.test(s);}
 
 // Descripciones a ignorar (no son consumos reales)
@@ -1462,15 +1478,15 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes,proximoCierreManual,fechaVenc
       for(let k=idxLim-1;k>=Math.max(0,idxLim-10);k--){
         console.log(`pos ${idxLim-k}:`, JSON.stringify(items[k]), '| esFechaLarga:', esFechaLarga(items[k]));
       }
+      // Bloque real (Visa): [vto anterior, PRÓXIMO CIERRE, cierre anterior, PRÓXIMO VTO] -> 4 fechas antes de LIMITES.
+      // Yendo hacia atrás desde LIMITES: [0]=próx. vto, [1]=cierre anterior, [2]=PRÓX. CIERRE, [3]=vto anterior
       const fechasEncontradas=[];
-      for(let k=idxLim-1; k>=Math.max(0,idxLim-10); k--){
+      for(let k=idxLim-1; k>=Math.max(0,idxLim-14); k--){
         if(esFechaLarga(items[k])) fechasEncontradas.push(items[k]);
-        if(fechasEncontradas.length>=2) break;
+        if(fechasEncontradas.length>=4) break;
       }
-      // fechasEncontradas[0] = más cercana a LIMITES = próximo vencimiento
-      // fechasEncontradas[1] = siguiente = próximo cierre
       if(!fechaVencimiento && fechasEncontradas.length>=1) fechaVencimiento=fechasEncontradas[0];
-      if(!proximoCierre && fechasEncontradas.length>=2) proximoCierre=fechasEncontradas[1];
+      if(!proximoCierre && fechasEncontradas.length>=2) proximoCierre=(fechasEncontradas.length>=4?fechasEncontradas[2]:fechasEncontradas[1]);
     }
   }
   // Paso 1: detectar marcadores "Tarjeta XXXX Total" que aparecen AL FINAL de cada sección
@@ -1664,7 +1680,7 @@ function renderTarjetas(){
   }).join('');
 
   let html='<div class="card" style="margin-bottom:1rem">'
-    +'<strong>Cargar tarjeta de crédito (PDF)</strong> <span style="font-size:10px;color:#666;float:right">v2026-09-29-tarjetas-filtro</span>'
+    +'<strong>Cargar tarjeta de crédito (PDF)</strong> <span style="font-size:10px;color:#666;float:right">v2026-09-29c-parser-guardado</span> <a href="'+SCRIPT_URL+'?accion=diagnostico" target="_blank" style="font-size:10px;color:#6a9;float:right;margin-right:8px">ver qué hay en Sheets</a>'
     +'<p style="font-size:12px;color:#999;margin:8px 0">Seleccioná tarjeta, mes y cargá el PDF del resumen.</p>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">'
       +'<div><label style="font-size:11px;color:#999">Tipo de tarjeta:</label>'
@@ -1692,7 +1708,7 @@ function renderTarjetas(){
     +'</div></div>';
 
   const tarjMesObj=tarjetasPorMes[mesKey]||{};
-  console.log('renderTarjetas v2026-09-29-tarjetas-filtro');
+  console.log('renderTarjetas v2026-09-29c-parser-guardado');
   console.log('renderTarjetas - mesKey:', mesKey, '| tarjetas en ese mes:', Object.keys(tarjMesObj).length, Object.keys(tarjMesObj));
   // Mostrar solo las tarjetas del mes que coinciden con el tipo elegido en el combo
   const tarjMesEntries=Object.entries(tarjMesObj).filter(function(e){return e[1]&&e[1].tipo===tipoTarjetaSeleccionado;});
