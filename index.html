@@ -1634,6 +1634,8 @@ function extraerCuotasDelPDF(items,nombre,tipo,mes,proximoCierreManual,fechaVenc
 }
 
 
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
 function renderTarjetas(){
   const M=currentMonthIdx, A=CURRENT_YEAR;
   const mesDefault=A+'-'+String(M+1).padStart(2,'0');
@@ -1717,17 +1719,17 @@ function renderTarjetas(){
       html+='<div class="card" style="margin-top:1rem">'
         +'<div class="card-header">'
           +'<div>'
-            +'<span class="card-title">💳 '+t.nombre
-            +'<span style="font-size:11px;color:#999;font-weight:normal;margin-left:8px">('+t.tipo+')</span>'
+            +'<span class="card-title">💳 '+esc(t.nombre)
+            +'<span style="font-size:11px;color:#999;font-weight:normal;margin-left:8px">('+esc(t.tipo)+')</span>'
             +'</span>'
             +'<div style="font-size:11px;color:#666;margin-top:4px">'
-              +(t.proximoCierre?'Próximo cierre: '+t.proximoCierre:'')
-              +(t.fechaVencimiento?' | Vencimiento: '+t.fechaVencimiento:'')
+              +(t.proximoCierre?'Próximo cierre: '+esc(t.proximoCierre):'')
+              +(t.fechaVencimiento?' | Vencimiento: '+esc(t.fechaVencimiento):'')
             +'</div>'
           +'</div>'
           +'<div style="display:flex;gap:8px;align-items:center">'
-            +'<span style="font-size:11px;color:#666">'+(t.fechaCarga||'')+'</span>'
-            +'<button class="danger" onclick="eliminarTarjetaMes(\''+mesKey+'\',\''+tKey.replace(/'/g,"\\'")+'\')" style="padding:3px 8px">✕</button>'
+            +'<span style="font-size:11px;color:#666">'+esc(t.fechaCarga||'')+'</span>'
+            +'<button class="danger" onclick="eliminarTarjetaMes(\''+esc(mesKey)+'\',\''+esc(tKey)+'\')" style="padding:3px 8px">✕</button>'
           +'</div>'
         +'</div>'
         +'<div class="summary-grid" style="margin:12px 0">'
@@ -1748,7 +1750,7 @@ function renderTarjetas(){
         const ordenadas=ultimasSec.concat(medioSec).concat(nuevasSec);
         const totalSec=sec.cuotas.reduce(function(s,c){return s+c.monto;},0);
 
-        html+='<div class="section-divider">Tarjeta •••• '+sec.numero+' — '+sec.titular+'</div>'
+        html+='<div class="section-divider">Tarjeta •••• '+esc(sec.numero)+' — '+esc(sec.titular)+'</div>'
           +'<div class="card" style="padding:8px;margin-bottom:8px">'
           +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
           +'<thead><tr>'
@@ -1763,7 +1765,7 @@ function renderTarjetas(){
           const bg=esUltima?'background:#1a2a1a':esNueva?'background:#1a1a2a':'';
           const colorM=esUltima?'#6f8':esNueva?'#f88':'#fff';
           html+='<tr style="border-top:1px solid #333;'+bg+'">'
-            +'<td style="padding:6px 8px">'+c.descripcion
+            +'<td style="padding:6px 8px">'+esc(c.descripcion)
               +(esUltima?'<span class="chip last">última</span>':'')
               +(esNueva?'<span class="chip">nueva</span>':'')
             +'</td>'
@@ -1790,7 +1792,7 @@ function renderTarjetas(){
         unPago.forEach(function(c){
           const labelUSD=c.montoUSD?'<span style="font-size:10px;background:#4a3a1a;color:#fa0;padding:1px 5px;border-radius:3px;margin-left:4px">USD</span>':'';
           html+='<tr style="border-top:1px solid #333">'
-            +'<td style="padding:6px 8px">'+c.descripcion+labelUSD+'</td>'
+            +'<td style="padding:6px 8px">'+esc(c.descripcion)+labelUSD+'</td>'
             +'<td style="text-align:right;padding:6px 8px;color:'+(c.montoUSD?'#fa0':'#f88')+'">'+fmt(c.monto)+'</td>'
           +'</tr>';
         });
@@ -1811,7 +1813,7 @@ function renderTarjetas(){
           +'</tr></thead><tbody>';
         bonifs.forEach(function(c){
           html+='<tr style="border-top:1px solid #333">'
-            +'<td style="padding:6px 8px">'+c.descripcion+'</td>'
+            +'<td style="padding:6px 8px">'+esc(c.descripcion)+'</td>'
             +'<td style="text-align:right;padding:6px 8px;color:#6f8">-'+fmt(c.monto)+'</td>'
           +'</tr>';
         });
