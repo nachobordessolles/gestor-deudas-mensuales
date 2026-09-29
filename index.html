@@ -228,6 +228,7 @@ const DEFAULT_FIJOS=[];
 
 // ── Google Sheets sync ──────────────────────────────────────────────
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzK4_ZhiaN-oM89UolMk53sy7j1_-D8hMyQWormvJi6_HoRIT7OEy8yOyLOneDLrwPR/exec';
+const CSV_URL    = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRsQ46aaLcLYVdXY20SWXzxAAeH6rbh8KfTWajrFwi6_LLK-OJUsEW4Cj0ytLqhFPUmUiE3d252CHoy/pub?gid=1971480074&single=true&output=csv&t=';
 function save(){}
 function load(){return null;}
 
@@ -253,11 +254,46 @@ async function guardarSheets(){
 
 async function cargarSheets(){
   try {
-    const r = await fetch(SCRIPT_URL + '?accion=cargar&t=' + Date.now());
-    const json = await r.json();
-    if(!json.ok || !json.estado){ console.warn('cargarSheets error:', json); return null; }
-    console.log('cargarSheets OK - meses:', Object.keys(json.estado.tarjetasPorMes||{}));
-    return json.estado;
+    const r = await fetch(CSV_URL + Date.now());
+    if(!r.ok) return null;
+    const txt = await r.text();
+
+    // Parsear CSV respetando celdas con comillas (Google Sheets escapa " como "")
+    function parseCsvCell(raw){
+      raw = raw.trim();
+      if(raw.startsWith('"') && raw.endsWith('"'))
+        raw = raw.slice(1,-1).replace(/""/g,'"');
+      return raw;
+    }
+
+    // Leer todas las filas: cada línea puede tener celdas con JSON largo entre comillas
+    // Usamos un split simple por línea y tomamos todo después de la primera coma como valor
+    const estado = {};
+    const tarjetasPorMesCargado = {};
+
+    const lines = txt.split('\n');
+    for(const line of lines){
+      if(!line.trim()) continue;
+      const firstComma = line.indexOf(',');
+      if(firstComma === -1) continue;
+      const key = line.substring(0, firstComma).trim();
+      const val = parseCsvCell(line.substring(firstComma+1));
+      if(!val) continue;
+      try{
+        if(key === 'estado'){
+          const parsed = JSON.parse(val);
+          Object.assign(estado, parsed);
+        } else if(key.startsWith('tarjetas-')){
+          const mesKey = key.replace('tarjetas-','');
+          tarjetasPorMesCargado[mesKey] = JSON.parse(val);
+        }
+      } catch(e){ console.warn('Error parseando fila:', key, e); }
+    }
+
+    if(!estado.deudas){ console.warn('cargarSheets: no se encontró fila estado'); return null; }
+    estado.tarjetasPorMes = tarjetasPorMesCargado;
+    console.log('cargarSheets OK - tarjetasPorMes meses:', Object.keys(tarjetasPorMesCargado));
+    return estado;
   } catch(e) {
     console.error('Error cargando Sheets:', e);
     return null;
