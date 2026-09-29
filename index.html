@@ -1727,7 +1727,7 @@ function renderTarjetas(){
           +'</div>'
           +'<div style="display:flex;gap:8px;align-items:center">'
             +'<span style="font-size:11px;color:#666">'+(t.fechaCarga||'')+'</span>'
-            +'<button class="danger" onclick="eliminarTarjetaMes(\''+mesKey+'\',\''+tKey+'\')" style="padding:3px 8px">✕</button>'
+            +'<button class="danger" onclick="eliminarTarjetaMes(\''+mesKey+'\',\''+tKey.replace(/'/g,"\\'")+'\')" style="padding:3px 8px">✕</button>'
           +'</div>'
         +'</div>'
         +'<div class="summary-grid" style="margin:12px 0">'
