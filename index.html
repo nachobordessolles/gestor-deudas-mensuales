@@ -1664,7 +1664,7 @@ function renderTarjetas(){
   }).join('');
 
   let html='<div class="card" style="margin-bottom:1rem">'
-    +'<strong>Cargar tarjeta de crédito (PDF)</strong>'
+    +'<strong>Cargar tarjeta de crédito (PDF)</strong> <span style="font-size:10px;color:#666;float:right">v2026-09-29-tarjetas-filtro</span>'
     +'<p style="font-size:12px;color:#999;margin:8px 0">Seleccioná tarjeta, mes y cargá el PDF del resumen.</p>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0">'
       +'<div><label style="font-size:11px;color:#999">Tipo de tarjeta:</label>'
@@ -1692,12 +1692,14 @@ function renderTarjetas(){
     +'</div></div>';
 
   const tarjMesObj=tarjetasPorMes[mesKey]||{};
+  console.log('renderTarjetas v2026-09-29-tarjetas-filtro');
   console.log('renderTarjetas - mesKey:', mesKey, '| tarjetas en ese mes:', Object.keys(tarjMesObj).length, Object.keys(tarjMesObj));
-  // Mostrar TODAS las tarjetas del mes (el selector de tipo es solo para cargar PDFs)
-  const tarjMesEntries=Object.entries(tarjMesObj);
+  // Mostrar solo las tarjetas del mes que coinciden con el tipo elegido en el combo
+  const tarjMesEntries=Object.entries(tarjMesObj).filter(function(e){return e[1]&&e[1].tipo===tipoTarjetaSeleccionado;});
+  const tipoLabel=(tipoOpts.match(new RegExp('value="'+tipoTarjetaSeleccionado+'"[^>]*>([^<]*)<'))||[])[1]||tipoTarjetaSeleccionado;
 
   if(tarjMesEntries.length===0){
-    html+='<div class="card"><p style="color:#666;font-size:13px">Sin tarjetas cargadas para este mes.</p></div>';
+    html+='<div class="card"><p style="color:#666;font-size:13px">Sin resumen de '+esc(tipoLabel)+' cargado para este mes.</p></div>';
   } else {
     tarjMesEntries.forEach(function(entry){
       var tKey=entry[0], t=entry[1];
@@ -1775,7 +1777,7 @@ function renderTarjetas(){
         });
 
         html+='<tr style="border-top:1px solid #444;background:#1a1a1a">'
-          +'<td colspan="2" style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Subtotal tarjeta '+sec.numero+':</td>'
+          +'<td colspan="2" style="padding:6px 8px;font-size:11px;color:#999;text-align:right">Subtotal tarjeta '+esc(sec.numero)+':</td>'
           +'<td style="text-align:right;padding:6px 8px;font-weight:500">'+fmt(totalSec)+'</td>'
         +'</tr></tbody></table></div>';
       });
