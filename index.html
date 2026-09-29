@@ -237,14 +237,17 @@ async function guardarSheets(){
     deudas, fijos, pagados, categorias, saldados, tarjetasPorMes,
     ts: Date.now()
   };
+  console.log('guardarSheets - tarjetasPorMes meses:', Object.keys(tarjetasPorMes));
   try {
     await fetch(SCRIPT_URL, {
       method:'POST', mode:'no-cors',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ accion:'guardar', estado: JSON.stringify(estado) })
     });
+    console.log('guardarSheets - POST enviado OK');
     showBadge(true);
   } catch(e) {
+    console.error('guardarSheets - error:', e);
     showBadge(false);
   }
 }
@@ -1920,6 +1923,7 @@ async function procesarPDFConTipo(file){
   if(!tipoEl||!mesEl){alert('Error: recargá la página.');return;}
   const tipo=tipoEl.value;
   const mes=mesEl.value;
+  console.log('procesarPDF - tipo:', tipo, '| mes:', mes, '| mesTarjetaSeleccionado:', mesTarjetaSeleccionado);
   // Para Visa Patagonia, usar siempre la clave por defecto si el campo está vacío
   let password=passEl?passEl.value.trim():'';
   if(!password&&tipo==='visa-patagonia') password='32151766';
